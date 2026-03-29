@@ -1,0 +1,19 @@
+# flyctl launch added from .gitignore
+# Environment
+**\.env
+**\__pycache__
+**\*.pyc
+**\*.pyo
+
+# OS
+**\.DS_Store
+**\Thumbs.db
+
+# IDE
+**\.vscode
+**\.idea
+
+# Temp files
+**\*.tmp
+**\*.log
+fly.toml
