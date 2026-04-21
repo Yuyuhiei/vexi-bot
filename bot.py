@@ -77,22 +77,63 @@ If the video is NOT related to Manus at all (e.g., random memes, personal vlogs,
 If the video IS related to Manus, set "manus_relevant" to true and proceed.
 
 ═══════════════════════════════════════
+LAYER 0.5: MONEY & INCOME CLAIM SCAN (v1.2 — RUN BEFORE ALL OTHER CHECKS)
+═══════════════════════════════════════
+Scan ALL audio, on-screen text, captions, and visuals for AUTO-REJECT keywords. These are absolute violations that require immediate escalation regardless of context.
+
+AUTO-REJECT PHRASES — if ANY of these are detected, set "quick_verdict" to "AUTO-REJECT":
+- "guaranteed income" / "guarantees income" / "guarantee you'll make"
+- "make you rich" / "will make you rich" / "Manus will make you rich"
+- "100% success" / "100% results"
+- "zero risk"
+- "easy money"
+- "everyone earns" / "everyone will earn"
+- "get rich quick"
+- "passive income" (when presented as a Manus guarantee, not a personal goal)
+- "financial freedom" (when presented as a Manus guarantee)
+- Any phrasing that equates using Manus with a guaranteed dollar outcome (e.g., "use Manus and earn $X guaranteed")
+
+If AUTO-REJECT keyword(s) are found:
+- Set "quick_verdict" to "AUTO-REJECT"
+- In "legal_paragraph", clearly name the exact phrase(s) detected with an [AUTO-REJECT] tag and timestamp if possible
+- Still complete all remaining checks below (the coach needs the full picture)
+
+MONEY CLAIM GUARDRAILS — HIGH RISK (not auto-reject, but flag as [HIGH]):
+- Any claim that Manus guarantees income or financial results, even without using the exact banned phrases
+- Implied "use Manus = you will make money" framing without explicit disclaimers or personal attribution
+- Specific dollar amounts (e.g., "$5k/month", "$10,000") stated as achievable outcomes without attached verifiable evidence
+- Income or ROI promises framed as universally applicable ("you will earn", "anyone can make")
+
+ALLOWED MONEY FRAMING (compliant — do NOT flag these):
+- Personal progress journaling with no guarantee: "Day 1 of my journey toward $5k/month — here are the tools I'm using"
+- Third-party user results with explicit evidence: "My friend made $X — here's their proof and the process they used"
+- Process/skill teaching with no income promise: "How to land your first clients using Manus"
+- Scenario-specific time savings with proof: "This report took 4 hours manually, Manus did it in 12 minutes (with evidence)"
+- Payment capability demos: "I built a site that can accept payments via Stripe" (showing the flow, not promising profit)
+
+═══════════════════════════════════════
 WHAT TO CHECK (Internal — use these to inform your paragraphs)
 ═══════════════════════════════════════
 
-LEGAL COMPLIANCE CHECKS:
-1. Copyrighted Characters or Content — Disney, Marvel, anime, Netflix, movie scenes, third-party characters. (HIGH RISK)
-2. Fake Reviews or Testimonials — Actors scripting fake customer stories, fake "first-time" reactions. (HIGH RISK)
-3. Exaggerated or Unproven Claims — Specific unprovable numerical claims like "10x your revenue guaranteed." Personal honest experiences are fine. (MEDIUM RISK)
-4. People Without Permission — Identifiable bystanders, friends, or children without release. (MEDIUM RISK)
-5. Competitor Logos or Products — Visible competitor logos, mocking competitors. (MEDIUM RISK)
-6. AI-Generated Faces or Voices — AI-generated people as testimonials without disclosure. (MEDIUM RISK)
-7. Font Licensing — Premium fonts without commercial license. Google Fonts are fine. (LOW RISK)
-8. Filming Locations — Inside recognizable branded private spaces. (LOW RISK)
-9. Platform Rules — Missing branded content toggles. (LOW RISK)
-10. Cultural Sensitivity — Stereotypes, accents as jokes, religious/political imagery. (LOW RISK)
-11. Music — If you hear music, give a soft reminder to confirm it's from TikTok/IG library or approved royalty-free source. NEVER flag music as a risk.
-12. Ad Disclosure — Remind creators to include at least one ad-disclosure hashtag (#ManusAd, #ManusPartner, #Ad, #Sponsored) in their caption when posting. Generic tags like #Manus alone are NOT enough. NEVER suggest putting hashtags on the video itself. NEVER flag as a risk.
+LEGAL COMPLIANCE CHECKS (v1.2 Checklist):
+1. Income & Money Claims — See LAYER 0.5 above. AUTO-REJECT for banned phrases; [HIGH] for implied guarantees; compliant framing is fine. (HIGH RISK / AUTO-REJECT)
+2. Absolute Claims — Phrases like "100%", "zero errors", "fully replaces humans", "best AI" without proof. (HIGH RISK)
+3. Efficiency Numbers Without Proof — Time-saved or speed claims (e.g., "build a site in 10 minutes", "save 5 hours") require real supporting data or evidence. Flag if none is visible. (MEDIUM RISK)
+4. Copyrighted Characters or Content — Disney, Marvel, anime, Netflix, movie scenes, third-party characters. (HIGH RISK)
+5. Fake Reviews or Testimonials — Actors scripting fake customer stories, fake "first-time" reactions. (HIGH RISK)
+6. Exaggerated or Unproven Claims — Unprovable numerical claims beyond income (e.g., "10x your revenue"). Personal honest experiences without guarantees are fine. (MEDIUM RISK)
+7. People Without Permission — Identifiable bystanders, friends, or children without release. (MEDIUM RISK)
+8. Competitor Logos or Products — Visible competitor logos, mocking competitors. (MEDIUM RISK)
+9. AI-Generated Faces or Voices — AI-generated people used as testimonials without disclosure. (MEDIUM RISK)
+10. Privacy Claims — Any "data security/privacy" statements must match Manus's privacy policy; flag vague or absolute privacy promises. (MEDIUM RISK)
+11. Product Demo Accuracy — Only show Manus UI/features that exist and work in the current version. Flag if demo shows non-existent or unshippable features. (MEDIUM RISK)
+12. Real-Person Likeness — AI-generated faces or voices resembling real people without authorization. (MEDIUM RISK)
+13. Font Licensing — Premium fonts without commercial license. Google Fonts are fine. (LOW RISK)
+14. Filming Locations — Inside recognizable branded private spaces. (LOW RISK)
+15. Platform Rules — Missing branded content toggles. (LOW RISK)
+16. Cultural Sensitivity — Stereotypes, accents as jokes, religious/political imagery. (LOW RISK)
+17. Music — If you hear music, give a soft reminder to confirm it's from TikTok/IG library or approved royalty-free source. NEVER flag music as a risk.
+18. Ad Disclosure — Remind creators to include at least one ad-disclosure hashtag (#ManusAd, #ManusPartner, #Ad, #Sponsored) in their caption when posting. Generic tags like #Manus alone are NOT enough. NEVER suggest putting hashtags on the video itself. NEVER flag as a risk.
 
 UGC FUNDAMENTALS CHECKS:
 1. Safe Zones — Critical text/face in bottom 350px (caption area) or top 250px (UI overlay)?
@@ -113,18 +154,19 @@ Return ONLY a valid JSON object (no markdown, no code fences) with this exact st
   "manus_relevant": true,
   "language_detected": "English",
   "script_summary": "2-3 sentence English summary of what the creator says and shows. If non-English, this serves as the translation for coaches.",
-  "legal_paragraph": "Write a SHORT conversational paragraph (3-5 sentences max) summarizing the legal compliance findings. Naturally weave in any flags you found — mention the specific issue, the risk level in brackets like [HIGH] or [MEDIUM], and the timestamp if applicable. If there are no flags, say so briefly. Always end with the music soft reminder (if music was detected) and the ad-disclosure hashtag reminder as natural sentences, not as separate sections. Example tone: 'No major legal flags here! I didn't spot any copyrighted content or fake testimonials. One thing to note — at 0:15 there's a claim about saving 20 hours a week [MEDIUM], your coach might want to verify that. I hear some background music, so just confirm it's from a licensed source. And remember to pop an ad-disclosure hashtag like #ManusAd in your caption when posting!'",
+  "legal_paragraph": "Write a SHORT conversational paragraph (3-5 sentences max) summarizing the legal compliance findings. If AUTO-REJECT keywords were found, lead with them clearly using [AUTO-REJECT] and the exact phrase. Then naturally weave in any other flags — mention the specific issue, the risk level in brackets like [HIGH] or [MEDIUM], and the timestamp if applicable. If there are no flags, say so briefly. Always end with the music soft reminder (if music was detected) and the ad-disclosure hashtag reminder as natural sentences. Example tone for clean video: 'No major legal flags here! No income guarantees, absolute claims, or copyrighted content spotted. One soft note — at 0:15 there's a time-saved claim without visible proof [MEDIUM], so your coach might want to verify that. I hear some background music, so just confirm it's from a licensed source. And remember to pop an ad-disclosure hashtag like #ManusAd in your caption when posting!'",
   "content_paragraph": "Write a SHORT conversational paragraph (3-5 sentences max) summarizing the UGC fundamentals. Cover safe zones, lighting/audio, the hook (mention which of the 12 categories it fits and whether it's strong or could be improved — suggest a specific alternative if weak), and pacing. Be constructive and specific. Example tone: 'Lighting and audio are solid — your face is well-lit and the sound is crisp. Safe zones look good for IG and TikTok. Your hook falls into the Demo/How-To category and it's decent, but it could be punchier — try opening with something like \"I built an entire website in 30 seconds\" to create more instant curiosity. Pacing is smooth throughout with no dead air.'",
-  "quick_verdict": "LOOKS GOOD / NEEDS REVIEW / COACH ATTENTION NEEDED / NOT MANUS CONTENT",
-  "overall_summary": "One final sentence. Always include: 'A human coach will review this shortly for final approval.'"
+  "quick_verdict": "LOOKS GOOD / NEEDS REVIEW / COACH ATTENTION NEEDED / AUTO-REJECT / NOT MANUS CONTENT",
+  "overall_summary": "One final sentence. Always include: 'A human coach will review this shortly for final approval.' If AUTO-REJECT, start with: 'This video contains auto-reject language and must be reviewed by a coach before any use.'"
 }
 
 CRITICAL RULES FOR THE PARAGRAPHS:
 - Keep each paragraph SHORT — 3-5 sentences max. Do NOT write essays.
 - Be conversational and friendly, like a peer creator giving feedback in a chat.
 - Naturally mention ALL relevant checks within the paragraph flow — don't use headers, bullet points, or field labels.
-- If something is fine, you can group multiple "all good" items in one sentence (e.g., "No copyrighted content, fake testimonials, or competitor logos spotted.").
+- If something is fine, you can group multiple "all good" items in one sentence (e.g., "No income guarantees, copyrighted content, or fake testimonials spotted.").
 - If something needs attention, be specific but brief (mention what, where/when, and risk level).
+- AUTO-REJECT findings must always be called out first and clearly, with the exact phrase detected.
 - Music and ad disclosure reminders should feel like natural sentences at the end of the legal paragraph, not separate callouts.
 - For hooks, always mention which of the 12 categories it falls into.
 - If the video is in a foreign language, still review it fully. Use "script_summary" for the English translation.
@@ -342,7 +384,7 @@ def build_review_message(review: dict, creator: str = None) -> tuple[str | None,
             ),
             color=discord.Color.dark_grey(),
         )
-        gate_embed.set_footer(text="Vexi • Derived from Latin 'vexillum' (flag) • v1.0")
+        gate_embed.set_footer(text="Vexi • Derived from Latin 'vexillum' (flag) • v1.2")
         return (None, [gate_embed])
 
     # --- Build single compact embed ---
@@ -351,6 +393,7 @@ def build_review_message(review: dict, creator: str = None) -> tuple[str | None,
         "LOOKS GOOD": discord.Color.green(),
         "NEEDS REVIEW": discord.Color.gold(),
         "COACH ATTENTION NEEDED": discord.Color.orange(),
+        "AUTO-REJECT": discord.Color.red(),
     }.get(verdict, discord.Color.gold())
 
     # Assemble the description as one clean message
@@ -367,6 +410,13 @@ def build_review_message(review: dict, creator: str = None) -> tuple[str | None,
     script = review.get("script_summary", "")
     if script:
         parts.append(f"\n📜 **Script Summary:** {script}")
+
+    # AUTO-REJECT banner
+    if verdict == "AUTO-REJECT":
+        parts.append(
+            "\n🚨 **AUTO-REJECT — COACH ESCALATION REQUIRED**"
+            "\n⛔ *This video contains banned language per the Manus UGC Guidelines v1.2. Do NOT approve or publish until a coach reviews and clears it.*"
+        )
 
     # Intro + Disclaimer
     parts.append(
@@ -393,7 +443,7 @@ def build_review_message(review: dict, creator: str = None) -> tuple[str | None,
         description="\n".join(parts),
         color=verdict_color,
     )
-    embed.set_footer(text="Vexi • Derived from Latin 'vexillum' (flag) • v1.0")
+    embed.set_footer(text="Vexi • Derived from Latin 'vexillum' (flag) • v1.2")
 
     return (None, [embed])
 
