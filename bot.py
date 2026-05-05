@@ -235,6 +235,31 @@ def guess_mime_type(url: str, filename: str = "") -> str:
     return "video/mp4"
 
 
+def _is_retryable(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return any(code in msg for code in ("503", "429", "unavailable", "resource_exhausted", "resourceexhausted", "too many requests"))
+
+
+async def _gemini_generate(contents: list, retries: int = 3) -> object:
+    delays = [5, 15, 30]
+    last_exc = None
+    for attempt in range(retries):
+        try:
+            return gemini_client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=contents,
+            )
+        except Exception as e:
+            last_exc = e
+            if _is_retryable(e) and attempt < retries - 1:
+                wait = delays[attempt]
+                log.warning(f"Gemini transient error (attempt {attempt + 1}/{retries}): {e}. Retrying in {wait}s...")
+                await asyncio.sleep(wait)
+            else:
+                raise
+    raise last_exc
+
+
 async def analyze_video_with_gemini(video_url: str, mime_type: str = "video/mp4") -> dict:
     """Send video URL directly to Gemini for review (no local download needed)."""
     raw_text = ""
@@ -248,10 +273,7 @@ async def analyze_video_with_gemini(video_url: str, mime_type: str = "video/mp4"
         )
 
         log.info("Calling Gemini 2.5 Flash for review...")
-        response = gemini_client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[video_part, REVIEW_PROMPT],
-        )
+        response = await _gemini_generate([video_part, REVIEW_PROMPT])
 
         raw_text = response.text.strip()
         log.info(f"Gemini response length: {len(raw_text)} chars")
@@ -325,10 +347,7 @@ async def analyze_video_with_gemini_upload(video_url: str, session: aiohttp.Clie
         if uploaded_file.state.name != "ACTIVE":
             return {"error": f"File processing failed. State: {uploaded_file.state.name}"}
 
-        response = gemini_client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[uploaded_file, REVIEW_PROMPT],
-        )
+        response = await _gemini_generate([uploaded_file, REVIEW_PROMPT])
 
         raw_text = response.text.strip()
         if raw_text.startswith("```"):
