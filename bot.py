@@ -180,6 +180,7 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".webm", ".mkv", ".m4v"}
 GDRIVE_PATTERN = re.compile(r"https?://drive\.google\.com/file/d/([a-zA-Z0-9_-]+)")
 GDRIVE_OPEN_PATTERN = re.compile(r"https?://drive\.google\.com/open\?id=([a-zA-Z0-9_-]+)")
 YOUTUBE_PATTERN = re.compile(r"(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/)([a-zA-Z0-9_-]+)")
+DISCORD_CDN_PATTERN = re.compile(r"https?://cdn\.discordapp\.com/attachments/")
 
 
 def convert_gdrive_to_direct(url: str) -> str:
@@ -615,12 +616,20 @@ async def vexi_command(
     mime = guess_mime_type(source_url, filename)
 
     try:
-        review = await analyze_video_with_gemini(source_url, mime_type=mime)
+        # Discord CDN URLs are signed/temporary — Gemini can't fetch them directly.
+        # Skip straight to the upload fallback for Discord attachments.
+        is_discord_cdn = bool(DISCORD_CDN_PATTERN.match(source_url))
 
-        if "error" in review:
-            log.info(f"Direct URL failed ({review['error']}), trying upload fallback...")
+        if is_discord_cdn:
+            log.info("Discord CDN URL detected — using upload fallback directly.")
             async with aiohttp.ClientSession() as session:
                 review = await analyze_video_with_gemini_upload(source_url, session)
+        else:
+            review = await analyze_video_with_gemini(source_url, mime_type=mime)
+            if "error" in review:
+                log.info(f"Direct URL failed ({review['error']}), trying upload fallback...")
+                async with aiohttp.ClientSession() as session:
+                    review = await analyze_video_with_gemini_upload(source_url, session)
 
         # Stop progress
         progress_done.set()
@@ -632,13 +641,11 @@ async def vexi_command(
         await progress_msg.edit(content=content_text, embeds=embeds)
     except Exception as e:
         progress_done.set()
+        await progress_task
         log.error(f"Slash command error: {type(e).__name__}: {e}")
-        try:
-            await progress_msg.edit(
-                content=f"❌ Something went wrong during the review. Please try again.\nError: {str(e)[:200]}"
-            )
-        except Exception:
-            pass
+        await progress_msg.edit(
+            content=f"❌ Something went wrong during the review. Please try again.\nError: {str(e)[:200]}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -706,12 +713,20 @@ async def on_message(message: discord.Message):
     mime = guess_mime_type(video_url, att_filename)
 
     try:
-        review = await analyze_video_with_gemini(video_url, mime_type=mime)
+        # Discord CDN URLs are signed/temporary — Gemini can't fetch them directly.
+        # Skip straight to the upload fallback for Discord attachments.
+        is_discord_cdn = bool(DISCORD_CDN_PATTERN.match(video_url))
 
-        if "error" in review:
-            log.info(f"Direct URL failed ({review['error']}), trying upload fallback...")
+        if is_discord_cdn:
+            log.info("Discord CDN URL detected — using upload fallback directly.")
             async with aiohttp.ClientSession() as session:
                 review = await analyze_video_with_gemini_upload(video_url, session)
+        else:
+            review = await analyze_video_with_gemini(video_url, mime_type=mime)
+            if "error" in review:
+                log.info(f"Direct URL failed ({review['error']}), trying upload fallback...")
+                async with aiohttp.ClientSession() as session:
+                    review = await analyze_video_with_gemini_upload(video_url, session)
 
         # Stop progress
         progress_done.set()
@@ -739,13 +754,11 @@ async def on_message(message: discord.Message):
         await thinking_msg.edit(content=ping_text if ping_text else None, embeds=embeds)
     except Exception as e:
         progress_done.set()
+        await progress_task
         log.error(f"Auto-detect error: {type(e).__name__}: {e}")
-        try:
-            await thinking_msg.edit(
-                content=f"❌ Something went wrong during the review. Please try again.\nError: {str(e)[:200]}"
-            )
-        except Exception:
-            pass
+        await thinking_msg.edit(
+            content=f"❌ Something went wrong during the review. Please try again.\nError: {str(e)[:200]}"
+        )
 
     try:
         await message.remove_reaction("🔍", bot.user)
