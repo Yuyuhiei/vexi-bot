@@ -11,6 +11,7 @@ Triggers:
 import os
 import json
 import re
+import shutil
 import tempfile
 import asyncio
 import logging
@@ -174,6 +175,73 @@ CRITICAL RULES FOR THE PARAGRAPHS:
 """
 
 # ---------------------------------------------------------------------------
+# Study Mode Prompt — Format Analysis + Manus Adaptation Brief
+# ---------------------------------------------------------------------------
+STUDY_PROMPT = r"""
+You are Vexi in "Study Mode" — a creative strategist helping the Manus UGC team learn from high-performing content in any niche or brand.
+
+Your job: watch this video, break down WHY it works as content, then write a practical brief for how to recreate this exact format as a Manus UGC video.
+
+═══════════════════════════════════════
+WHAT TO ANALYZE
+═══════════════════════════════════════
+
+1. SOURCE CONTEXT
+   - What niche or brand is this from? What is the creator's style and energy?
+   - What platform and audience is this optimized for?
+
+2. FORMAT BREAKDOWN
+   - Hook: Identify which of these 12 hook categories it uses and exactly how it executes it:
+     (1) Curiosity / "Feels Illegal to Know"  (2) Challenge / Speed Run  (3) Before & After / Transformation
+     (4) Hot Take / Controversial / Pattern Interrupt  (5) Demo / How-To (Punchy Openers)
+     (6) Social Proof / Flex / Authority  (7) Skits  (8) News & Presentation  (9) FOMO / Urgency
+     (10) Anti-Hook / Reverse Psychology  (11) Comparison / "This vs. That"  (12) Emotional / Relatable
+   - Structure: What is the video's narrative arc? (e.g., hook → pain point → solution reveal → CTA)
+   - Pacing & editing style: fast cuts, voiceover, talking head, screen recording, b-roll mix?
+   - Visual & audio techniques: text overlays, music energy, on-screen captions, transitions, tone?
+
+3. WHY IT WORKS
+   - The single core reason this format is effective (1-2 sentences max)
+
+4. MANUS ADAPTATION
+   - How do you recreate this exact format for a Manus UGC video?
+   - Map each narrative beat to a Manus equivalent. For example: the "pain point" beat → show a manual, tedious workflow; the "solution reveal" → Manus completes the same task in seconds
+   - Which specific Manus features or capabilities (agentic tasks, browser automation, document generation, research, code, etc.) are the best fit for each beat?
+   - What tone and energy level should the Manus creator match?
+
+5. SUGGESTED OUTLINE
+   - A practical shot-by-shot or beat-by-beat outline a Manus UGC creator can follow
+   - 6-10 numbered beats max
+   - Plain text only, no markdown symbols
+
+6. COPY GUARDRAILS
+   - What should NOT be directly copied from this video?
+   - Flag anything that would fail a Vexi compliance check if ported to Manus: income guarantees, absolute claims, competitor references, fake testimonials, unlicensed music, copyright risks
+   - If the original is clean and safe to emulate, say so briefly
+
+═══════════════════════════════════════
+OUTPUT FORMAT
+═══════════════════════════════════════
+Return ONLY a valid JSON object (no markdown, no code fences):
+
+{
+  "source_context": "1-2 sentences: niche, creator style, platform this video is optimized for",
+  "format_breakdown": "Conversational paragraph covering the hook category (name it explicitly), narrative structure, pacing, and key visual/audio techniques",
+  "what_makes_it_work": "1-2 sentences on the core reason this format is effective",
+  "manus_adaptation": "Conversational paragraph on how to port this format to Manus — what to keep, what to swap, which Manus features or capabilities fill each beat",
+  "suggested_outline": "Numbered plain-text outline, 6-10 beats, no markdown symbols. Each beat on its own line.",
+  "copy_guardrails": "What to avoid from this video and why. Flag any compliance risks for Manus. If clean, say so briefly.",
+  "adaptation_difficulty": "EASY / MODERATE / COMPLEX"
+}
+
+CRITICAL RULES:
+- Keep each field SHORT and conversational — 3-5 sentences max per paragraph field.
+- "suggested_outline" is the only field that can be longer — use numbered lines.
+- NEVER use markdown formatting (no bold, no headers, no bullets) inside string values — plain text only.
+- If the video has no audio or is very short, do your best with what is visible.
+"""
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".webm", ".mkv", ".m4v"}
@@ -181,6 +249,47 @@ GDRIVE_PATTERN = re.compile(r"https?://drive\.google\.com/file/d/([a-zA-Z0-9_-]+
 GDRIVE_OPEN_PATTERN = re.compile(r"https?://drive\.google\.com/open\?id=([a-zA-Z0-9_-]+)")
 YOUTUBE_PATTERN = re.compile(r"(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/)([a-zA-Z0-9_-]+)")
 DISCORD_CDN_PATTERN = re.compile(r"https?://cdn\.discordapp\.com/attachments/")
+INSTAGRAM_PATTERN = re.compile(r"https?://(www\.)?instagram\.com/(reel|p|tv)/([a-zA-Z0-9_-]+)")
+TIKTOK_PATTERN = re.compile(r"https?://(www\.|vm\.|vt\.)?tiktok\.com/")
+
+
+def _is_social_media_url(url: str) -> bool:
+    return bool(
+        INSTAGRAM_PATTERN.search(url)
+        or TIKTOK_PATTERN.search(url)
+        or YOUTUBE_PATTERN.search(url)
+    )
+
+
+async def download_with_ytdlp(url: str) -> tuple[str | None, str | None]:
+    """Download a public social media video via yt-dlp. Returns (file_path, error)."""
+    import yt_dlp
+
+    tmp_dir = tempfile.mkdtemp(prefix="vexi_study_")
+    output_template = os.path.join(tmp_dir, "video.%(ext)s")
+
+    ydl_opts = {
+        "outtmpl": output_template,
+        "format": "best[ext=mp4][filesize<100M]/best[filesize<100M]/best",
+        "quiet": True,
+        "no_warnings": True,
+        "max_filesize": 100 * 1024 * 1024,
+    }
+
+    def _download():
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+        files = list(Path(tmp_dir).glob("video.*"))
+        if files:
+            return str(files[0]), None
+        return None, "Download completed but output file not found."
+
+    loop = asyncio.get_event_loop()
+    try:
+        return await loop.run_in_executor(None, _download)
+    except Exception as e:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return None, str(e)
 
 
 def convert_gdrive_to_direct(url: str) -> str:
@@ -261,8 +370,10 @@ async def _gemini_generate(contents: list, retries: int = 3) -> object:
     raise last_exc
 
 
-async def analyze_video_with_gemini(video_url: str, mime_type: str = "video/mp4") -> dict:
+async def analyze_video_with_gemini(video_url: str, mime_type: str = "video/mp4", prompt: str = None) -> dict:
     """Send video URL directly to Gemini for review (no local download needed)."""
+    if prompt is None:
+        prompt = REVIEW_PROMPT
     raw_text = ""
     try:
         log.info(f"Sending video URL to Gemini: {video_url[:120]}...")
@@ -274,7 +385,7 @@ async def analyze_video_with_gemini(video_url: str, mime_type: str = "video/mp4"
         )
 
         log.info("Calling Gemini 2.5 Flash for review...")
-        response = await _gemini_generate([video_part, REVIEW_PROMPT])
+        response = await _gemini_generate([video_part, prompt])
 
         raw_text = response.text.strip()
         log.info(f"Gemini response length: {len(raw_text)} chars")
@@ -296,8 +407,54 @@ async def analyze_video_with_gemini(video_url: str, mime_type: str = "video/mp4"
         return {"error": str(e)}
 
 
-async def analyze_video_with_gemini_upload(video_url: str, session: aiohttp.ClientSession) -> dict:
+async def _analyze_local_file_with_gemini(file_path: str, prompt: str = None) -> dict:
+    """Upload a local file to Gemini File API and analyze it."""
+    if prompt is None:
+        prompt = REVIEW_PROMPT
+    raw_text = ""
+    try:
+        mime = guess_mime_type(file_path)
+        log.info(f"Uploading local file to Gemini File API: {file_path} ({mime})")
+        uploaded_file = gemini_client.files.upload(file=file_path)
+        log.info(f"Upload complete: {uploaded_file.name}, state={uploaded_file.state}")
+
+        max_wait = 120
+        waited = 0
+        while uploaded_file.state.name == "PROCESSING" and waited < max_wait:
+            await asyncio.sleep(5)
+            waited += 5
+            uploaded_file = gemini_client.files.get(name=uploaded_file.name)
+
+        if uploaded_file.state.name != "ACTIVE":
+            return {"error": f"File processing failed. State: {uploaded_file.state.name}"}
+
+        response = await _gemini_generate([uploaded_file, prompt])
+        raw_text = response.text.strip()
+        if raw_text.startswith("```"):
+            raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
+            raw_text = re.sub(r"\s*```$", "", raw_text)
+
+        result = json.loads(raw_text)
+
+        try:
+            gemini_client.files.delete(name=uploaded_file.name)
+        except Exception:
+            pass
+
+        return result
+
+    except json.JSONDecodeError as e:
+        log.error(f"JSON parse error: {e}\nRaw: {raw_text[:500]}")
+        return {"error": "AI returned invalid JSON."}
+    except Exception as e:
+        log.error(f"Local file Gemini upload error: {type(e).__name__}: {e}")
+        return {"error": str(e)}
+
+
+async def analyze_video_with_gemini_upload(video_url: str, session: aiohttp.ClientSession, prompt: str = None) -> dict:
     """Fallback: Download video and upload to Gemini File API."""
+    if prompt is None:
+        prompt = REVIEW_PROMPT
     raw_text = ""
     video_path = None
     try:
@@ -334,39 +491,8 @@ async def analyze_video_with_gemini_upload(video_url: str, session: aiohttp.Clie
             video_path = tmp.name
             log.info(f"Downloaded {total / 1024 / 1024:.1f}MB to {video_path}")
 
-        log.info(f"Uploading {video_path} to Gemini File API...")
-        uploaded_file = gemini_client.files.upload(file=video_path)
-        log.info(f"Upload complete: {uploaded_file.name}, state={uploaded_file.state}")
+        return await _analyze_local_file_with_gemini(video_path, prompt)
 
-        max_wait = 120
-        waited = 0
-        while uploaded_file.state.name == "PROCESSING" and waited < max_wait:
-            await asyncio.sleep(5)
-            waited += 5
-            uploaded_file = gemini_client.files.get(name=uploaded_file.name)
-
-        if uploaded_file.state.name != "ACTIVE":
-            return {"error": f"File processing failed. State: {uploaded_file.state.name}"}
-
-        response = await _gemini_generate([uploaded_file, REVIEW_PROMPT])
-
-        raw_text = response.text.strip()
-        if raw_text.startswith("```"):
-            raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
-            raw_text = re.sub(r"\s*```$", "", raw_text)
-
-        result = json.loads(raw_text)
-
-        try:
-            gemini_client.files.delete(name=uploaded_file.name)
-        except Exception:
-            pass
-
-        return result
-
-    except json.JSONDecodeError as e:
-        log.error(f"JSON parse error: {e}\nRaw: {raw_text[:500]}")
-        return {"error": f"AI returned invalid JSON."}
     except Exception as e:
         log.error(f"Gemini upload fallback error: {type(e).__name__}: {e}")
         return {"error": str(e)}
@@ -465,6 +591,64 @@ def build_review_message(review: dict, creator: str = None) -> tuple[str | None,
     )
     embed.set_footer(text="Vexi • Derived from Latin 'vexillum' (flag) • v1.2")
 
+    return (None, [embed])
+
+
+def build_study_message(study: dict, source_label: str = "Video") -> tuple[str | None, list[discord.Embed]]:
+    """Convert a Gemini Study Mode JSON result into a Discord embed."""
+    if "error" in study:
+        err_embed = discord.Embed(
+            title="Vexi Study — Error",
+            description=f"Something went wrong:\n```{study['error'][:500]}```\nMake sure the video is public and in a supported format.",
+            color=discord.Color.red(),
+        )
+        return (None, [err_embed])
+
+    difficulty = study.get("adaptation_difficulty", "MODERATE")
+    diff_color = {
+        "EASY": discord.Color.green(),
+        "MODERATE": discord.Color.gold(),
+        "COMPLEX": discord.Color.orange(),
+    }.get(difficulty, discord.Color.gold())
+
+    parts = []
+    parts.append(f"🎯 **Adaptation Difficulty:** {difficulty}")
+
+    source_ctx = study.get("source_context", "")
+    if source_ctx:
+        parts.append(f"\n📌 **Source Context:** {source_ctx}")
+
+    fmt = study.get("format_breakdown", "")
+    if fmt:
+        parts.append(f"\n🎬 **Format Breakdown:** {fmt}")
+
+    works = study.get("what_makes_it_work", "")
+    if works:
+        parts.append(f"\n✨ **Why It Works:** {works}")
+
+    adaptation = study.get("manus_adaptation", "")
+    if adaptation:
+        parts.append(f"\n🔄 **Manus Adaptation:** {adaptation}")
+
+    outline = study.get("suggested_outline", "")
+    if outline:
+        parts.append(f"\n📋 **Suggested Outline:**\n{outline}")
+
+    guardrails = study.get("copy_guardrails", "")
+    if guardrails:
+        parts.append(f"\n⚠️ **Copy Guardrails:** {guardrails}")
+
+    description = "\n".join(parts)
+    # Truncate gracefully if near Discord's 4096-char embed limit
+    if len(description) > 4000:
+        description = description[:3990] + "\n…*(truncated)*"
+
+    embed = discord.Embed(
+        title=f"Vexi Study — {source_label}",
+        description=description,
+        color=diff_color,
+    )
+    embed.set_footer(text="Vexi Study Mode • Format inspiration for Manus UGC creators • v1.2")
     return (None, [embed])
 
 
@@ -646,6 +830,176 @@ async def vexi_command(
         await progress_msg.edit(
             content=f"❌ Something went wrong during the review. Please try again.\nError: {str(e)[:200]}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Slash Command: /study
+# ---------------------------------------------------------------------------
+@bot.tree.command(name="study", description="Study any creator's video and get a Manus UGC adaptation brief")
+@app_commands.describe(
+    video="Attach a downloaded video file",
+    video_url="Or paste an Instagram, TikTok, YouTube, or direct video URL",
+    niche="Optional: describe the niche or brand for extra context (e.g. 'productivity SaaS', 'fitness app')",
+)
+async def study_command(
+    interaction: discord.Interaction,
+    video: discord.Attachment = None,
+    video_url: str = None,
+    niche: str = None,
+):
+    """Handle /study slash command — format analysis + Manus adaptation brief."""
+    try:
+        await interaction.response.defer(thinking=True)
+    except (discord.errors.NotFound, discord.errors.HTTPException) as e:
+        log.warning(f"Study interaction defer failed: {e}")
+        return
+
+    if video is None and not video_url:
+        await interaction.followup.send(
+            "👋 Give me a video to study!\n\n"
+            "**Option 1:** `/study video:` → attach a downloaded video\n"
+            "**Option 2:** `/study video_url:https://www.tiktok.com/@creator/video/123`\n"
+            "**Option 3:** Add `niche:` for context — e.g. `niche:productivity SaaS`\n\n"
+            "Supports Instagram Reels, TikTok, YouTube, Google Drive, and direct links."
+        )
+        return
+
+    source_label = "Video"
+    source_url = None
+    tmp_path = None
+    tmp_dir = None
+
+    intro_text = f"🔍 **Vexi is studying a video for {interaction.user.mention}...** Hang tight!"
+    if niche:
+        intro_text += f"\n📌 Niche context: *{niche}*"
+
+    if video is not None:
+        suffix = Path(video.filename).suffix.lower()
+        if suffix not in VIDEO_EXTENSIONS:
+            await interaction.followup.send(
+                f"❌ That doesn't look like a video file (`{video.filename}`).\n"
+                f"Supported formats: {', '.join(VIDEO_EXTENSIONS)}"
+            )
+            return
+        source_url = video.url
+        source_label = f"Uploaded: {video.filename}"
+        try:
+            video_file = await video.to_file()
+            visible_msg = await interaction.followup.send(content=intro_text, file=video_file)
+        except Exception as e:
+            log.warning(f"Could not re-attach video: {e}")
+            visible_msg = await interaction.followup.send(content=intro_text)
+    else:
+        source_url = video_url
+        if INSTAGRAM_PATTERN.search(video_url):
+            source_label = "Instagram"
+        elif TIKTOK_PATTERN.search(video_url):
+            source_label = "TikTok"
+        elif YOUTUBE_PATTERN.search(video_url):
+            source_label = "YouTube"
+        elif GDRIVE_PATTERN.search(video_url) or GDRIVE_OPEN_PATTERN.search(video_url):
+            source_label = "Google Drive"
+        else:
+            source_label = "Direct Link"
+        visible_msg = await interaction.followup.send(
+            content=f"{intro_text}\n🎬 Video: {source_url}"
+        )
+
+    progress_msg = await visible_msg.reply(
+        content="⏳ **Vexi is studying the format...**\n▁▁▁▁▁▁▁▁▁▁ Loading video..."
+    )
+
+    progress_done = asyncio.Event()
+
+    async def update_progress():
+        stages = [
+            ("▓▓▁▁▁▁▁▁▁▁", "🎬 Watching the video..."),
+            ("▓▓▓▓▁▁▁▁▁▁", "🎬 Watching the video..."),
+            ("▓▓▓▓▓▁▁▁▁▁", "🔍 Breaking down the format..."),
+            ("▓▓▓▓▓▓▁▁▁▁", "🔍 Analyzing hook & structure..."),
+            ("▓▓▓▓▓▓▓▁▁▁", "🔄 Building Manus adaptation brief..."),
+            ("▓▓▓▓▓▓▓▓▁▁", "🔄 Building Manus adaptation brief..."),
+            ("▓▓▓▓▓▓▓▓▓▁", "📋 Writing the outline..."),
+            ("▓▓▓▓▓▓▓▓▓▓", "✅ Almost done..."),
+        ]
+        for bar, status in stages:
+            if progress_done.is_set():
+                return
+            try:
+                await progress_msg.edit(
+                    content=f"⏳ **Vexi is studying the format...**\n{bar} {status}"
+                )
+            except Exception:
+                return
+            try:
+                await asyncio.wait_for(progress_done.wait(), timeout=15)
+                return
+            except asyncio.TimeoutError:
+                continue
+
+    progress_task = asyncio.create_task(update_progress())
+
+    active_prompt = STUDY_PROMPT
+    if niche:
+        active_prompt = STUDY_PROMPT + f"\n\nNICHE CONTEXT PROVIDED BY SUBMITTER: {niche}\nTailor your Manus adaptation and suggested outline to this niche specifically.\n"
+
+    try:
+        is_discord_cdn = bool(DISCORD_CDN_PATTERN.match(source_url))
+        is_social = (video is None) and _is_social_media_url(source_url)
+        is_gdrive = bool(GDRIVE_PATTERN.search(source_url) or GDRIVE_OPEN_PATTERN.search(source_url))
+
+        if is_social:
+            log.info(f"Social media URL — downloading with yt-dlp: {source_url[:80]}")
+            await progress_msg.edit(
+                content="⏳ **Vexi is studying the format...**\n▓▁▁▁▁▁▁▁▁▁ 📥 Downloading from social media..."
+            )
+            tmp_path, dl_error = await download_with_ytdlp(source_url)
+            if dl_error or not tmp_path:
+                study = {"error": f"Could not download video: {dl_error or 'Unknown error'}. Make sure the video is public."}
+            else:
+                tmp_dir = os.path.dirname(tmp_path)
+                log.info(f"yt-dlp downloaded to: {tmp_path}")
+                study = await _analyze_local_file_with_gemini(tmp_path, prompt=active_prompt)
+        elif is_discord_cdn:
+            log.info("Discord CDN URL — using upload fallback.")
+            async with aiohttp.ClientSession() as sess:
+                study = await analyze_video_with_gemini_upload(source_url, sess, prompt=active_prompt)
+        elif is_gdrive:
+            direct_url = convert_gdrive_to_direct(source_url)
+            study = await analyze_video_with_gemini(direct_url, prompt=active_prompt)
+            if "error" in study:
+                log.info(f"Direct GDrive failed, trying upload fallback...")
+                async with aiohttp.ClientSession() as sess:
+                    study = await analyze_video_with_gemini_upload(direct_url, sess, prompt=active_prompt)
+        else:
+            mime = guess_mime_type(source_url, video.filename if video else "")
+            study = await analyze_video_with_gemini(source_url, mime_type=mime, prompt=active_prompt)
+            if "error" in study:
+                log.info(f"Direct URL failed, trying upload fallback...")
+                async with aiohttp.ClientSession() as sess:
+                    study = await analyze_video_with_gemini_upload(source_url, sess, prompt=active_prompt)
+
+        progress_done.set()
+        await progress_task
+
+        _, embeds = build_study_message(study, source_label=source_label)
+        await progress_msg.edit(content=None, embeds=embeds)
+
+    except Exception as e:
+        progress_done.set()
+        await progress_task
+        log.error(f"Study command error: {type(e).__name__}: {e}")
+        await progress_msg.edit(
+            content=f"❌ Something went wrong. Please try again.\nError: {str(e)[:200]}"
+        )
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+        if tmp_dir and os.path.isdir(tmp_dir):
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
