@@ -959,6 +959,24 @@ async def study_command(
             else:
                 tmp_dir = os.path.dirname(tmp_path)
                 log.info(f"yt-dlp downloaded to: {tmp_path}")
+                # Post the downloaded video in Discord so creators can see the source
+                try:
+                    ext = Path(tmp_path).suffix.lower()
+                    friendly_name = f"{source_label.lower().replace(' ', '_')}{ext}"
+                    await interaction.followup.send(
+                        content=f"📹 **Original {source_label} video:**",
+                        file=discord.File(tmp_path, filename=friendly_name),
+                    )
+                except discord.HTTPException as e:
+                    if e.status == 413:
+                        log.warning(f"Video too large to attach to Discord: {tmp_path}")
+                        await interaction.followup.send(
+                            content=f"📹 **Original video (too large to attach):** {source_url}"
+                        )
+                    else:
+                        log.warning(f"Could not attach video to Discord: {e}")
+                except Exception as e:
+                    log.warning(f"Could not attach video to Discord: {e}")
                 study = await _analyze_local_file_with_gemini(tmp_path, prompt=active_prompt)
         elif is_discord_cdn:
             log.info("Discord CDN URL — using upload fallback.")
