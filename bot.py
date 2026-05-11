@@ -180,44 +180,28 @@ CRITICAL RULES FOR THE PARAGRAPHS:
 STUDY_PROMPT = r"""
 You are Vexi in "Study Mode" — a creative strategist helping the Manus UGC team learn from high-performing content in any niche or brand.
 
-Your job: watch this video, break down WHY it works as content, then write a practical brief for how to recreate this exact format as a Manus UGC video.
+Your job: watch this video, break down WHY it works, then write a concise Manus adaptation brief.
 
 ═══════════════════════════════════════
 WHAT TO ANALYZE
 ═══════════════════════════════════════
 
-1. SOURCE CONTEXT
-   - What niche or brand is this from? What is the creator's style and energy?
-   - What platform and audience is this optimized for?
+PART 1 — FORMAT ANALYSIS:
+- Source context: niche, creator style, platform
+- Hook: which of these 12 categories does it use?
+  (1) Curiosity / "Feels Illegal to Know"  (2) Challenge / Speed Run  (3) Before & After / Transformation
+  (4) Hot Take / Controversial / Pattern Interrupt  (5) Demo / How-To (Punchy Openers)
+  (6) Social Proof / Flex / Authority  (7) Skits  (8) News & Presentation  (9) FOMO / Urgency
+  (10) Anti-Hook / Reverse Psychology  (11) Comparison / "This vs. That"  (12) Emotional / Relatable
+- Narrative structure (hook → problem → solution → CTA, etc.)
+- Pacing, editing style, key visual/audio techniques
+- The single core reason this format works
 
-2. FORMAT BREAKDOWN
-   - Hook: Identify which of these 12 hook categories it uses and exactly how it executes it:
-     (1) Curiosity / "Feels Illegal to Know"  (2) Challenge / Speed Run  (3) Before & After / Transformation
-     (4) Hot Take / Controversial / Pattern Interrupt  (5) Demo / How-To (Punchy Openers)
-     (6) Social Proof / Flex / Authority  (7) Skits  (8) News & Presentation  (9) FOMO / Urgency
-     (10) Anti-Hook / Reverse Psychology  (11) Comparison / "This vs. That"  (12) Emotional / Relatable
-   - Structure: What is the video's narrative arc? (e.g., hook → pain point → solution reveal → CTA)
-   - Pacing & editing style: fast cuts, voiceover, talking head, screen recording, b-roll mix?
-   - Visual & audio techniques: text overlays, music energy, on-screen captions, transitions, tone?
-
-3. WHY IT WORKS
-   - The single core reason this format is effective (1-2 sentences max)
-
-4. MANUS ADAPTATION
-   - How do you recreate this exact format for a Manus UGC video?
-   - Map each narrative beat to a Manus equivalent. For example: the "pain point" beat → show a manual, tedious workflow; the "solution reveal" → Manus completes the same task in seconds
-   - Which specific Manus features or capabilities (agentic tasks, browser automation, document generation, research, code, etc.) are the best fit for each beat?
-   - What tone and energy level should the Manus creator match?
-
-5. SUGGESTED OUTLINE
-   - A practical shot-by-shot or beat-by-beat outline a Manus UGC creator can follow
-   - 6-10 numbered beats max
-   - Plain text only, no markdown symbols
-
-6. COPY GUARDRAILS
-   - What should NOT be directly copied from this video?
-   - Flag anything that would fail a Vexi compliance check if ported to Manus: income guarantees, absolute claims, competitor references, fake testimonials, unlicensed music, copyright risks
-   - If the original is clean and safe to emulate, say so briefly
+PART 2 — MANUS ADAPTATION:
+- How to port this exact format to a Manus UGC video, beat by beat
+- Which Manus features fill each narrative role (agentic tasks, browser automation, research, document generation, etc.)
+- A numbered shot/beat outline a creator can follow (5-7 beats max)
+- What NOT to copy — flag anything that would fail a Vexi compliance check (income claims, absolute promises, competitor mentions, fake testimonials)
 
 ═══════════════════════════════════════
 OUTPUT FORMAT
@@ -225,20 +209,19 @@ OUTPUT FORMAT
 Return ONLY a valid JSON object (no markdown, no code fences):
 
 {
-  "source_context": "1-2 sentences: niche, creator style, platform this video is optimized for",
-  "format_breakdown": "Conversational paragraph covering the hook category (name it explicitly), narrative structure, pacing, and key visual/audio techniques",
-  "what_makes_it_work": "1-2 sentences on the core reason this format is effective",
-  "manus_adaptation": "Conversational paragraph on how to port this format to Manus — what to keep, what to swap, which Manus features or capabilities fill each beat",
-  "suggested_outline": "Numbered plain-text outline, 6-10 beats, no markdown symbols. Each beat on its own line.",
-  "copy_guardrails": "What to avoid from this video and why. Flag any compliance risks for Manus. If clean, say so briefly.",
+  "source_context": "One sentence: niche, creator style, platform.",
+  "format_breakdown": "2-3 sentences max. Name the hook category explicitly. Cover structure and pacing briefly.",
+  "what_makes_it_work": "One sentence only.",
+  "manus_adaptation": "2-3 sentences max. What to keep, what to swap, which Manus features fill each beat.",
+  "suggested_outline": "Numbered plain-text outline, 5-7 beats, each on its own line. No markdown symbols.",
+  "copy_guardrails": "1-2 sentences. Flag compliance risks or confirm it's clean.",
   "adaptation_difficulty": "EASY / MODERATE / COMPLEX"
 }
 
 CRITICAL RULES:
-- Keep each field SHORT and conversational — 3-5 sentences max per paragraph field.
-- "suggested_outline" is the only field that can be longer — use numbered lines.
-- NEVER use markdown formatting (no bold, no headers, no bullets) inside string values — plain text only.
-- If the video has no audio or is very short, do your best with what is visible.
+- Be concise. Every field has a strict length cap — do not exceed it.
+- NEVER use markdown formatting inside string values — plain text only.
+- If the video has no audio or is very short, work with what is visible.
 """
 
 # ---------------------------------------------------------------------------
@@ -611,45 +594,52 @@ def build_study_message(study: dict, source_label: str = "Video") -> tuple[str |
         "COMPLEX": discord.Color.orange(),
     }.get(difficulty, discord.Color.gold())
 
-    parts = []
-    parts.append(f"🎯 **Adaptation Difficulty:** {difficulty}")
+    # --- Embed 1: Format Analysis ---
+    p1 = []
+    p1.append(f"🎯 **Adaptation Difficulty:** {difficulty}")
 
     source_ctx = study.get("source_context", "")
     if source_ctx:
-        parts.append(f"\n📌 **Source Context:** {source_ctx}")
+        p1.append(f"\n📌 **Source Context:** {source_ctx}")
 
     fmt = study.get("format_breakdown", "")
     if fmt:
-        parts.append(f"\n🎬 **Format Breakdown:** {fmt}")
+        p1.append(f"\n🎬 **Format Breakdown:** {fmt}")
 
     works = study.get("what_makes_it_work", "")
     if works:
-        parts.append(f"\n✨ **Why It Works:** {works}")
+        p1.append(f"\n✨ **Why It Works:** {works}")
+
+    embed1 = discord.Embed(
+        title=f"Vexi Study — {source_label}",
+        description="\n".join(p1),
+        color=diff_color,
+    )
+    embed1.set_footer(text="Vexi Study Mode • 1 of 2 — Format Analysis")
+
+    # --- Embed 2: Manus Adaptation Brief ---
+    p2 = []
 
     adaptation = study.get("manus_adaptation", "")
     if adaptation:
-        parts.append(f"\n🔄 **Manus Adaptation:** {adaptation}")
+        p2.append(f"🔄 **Manus Adaptation:** {adaptation}")
 
     outline = study.get("suggested_outline", "")
     if outline:
-        parts.append(f"\n📋 **Suggested Outline:**\n{outline}")
+        p2.append(f"\n📋 **Suggested Outline:**\n{outline}")
 
     guardrails = study.get("copy_guardrails", "")
     if guardrails:
-        parts.append(f"\n⚠️ **Copy Guardrails:** {guardrails}")
+        p2.append(f"\n⚠️ **Copy Guardrails:** {guardrails}")
 
-    description = "\n".join(parts)
-    # Truncate gracefully if near Discord's 4096-char embed limit
-    if len(description) > 4000:
-        description = description[:3990] + "\n…*(truncated)*"
-
-    embed = discord.Embed(
-        title=f"Vexi Study — {source_label}",
-        description=description,
+    embed2 = discord.Embed(
+        title="Vexi Study — Manus Adaptation Brief",
+        description="\n".join(p2),
         color=diff_color,
     )
-    embed.set_footer(text="Vexi Study Mode • Format inspiration for Manus UGC creators • v1.2")
-    return (None, [embed])
+    embed2.set_footer(text="Vexi Study Mode • 2 of 2 — Manus Adaptation Brief • v1.2")
+
+    return (None, [embed1, embed2])
 
 
 # ---------------------------------------------------------------------------
@@ -1001,7 +991,9 @@ async def study_command(
         await progress_task
 
         _, embeds = build_study_message(study, source_label=source_label)
-        await progress_msg.edit(content=None, embeds=embeds)
+        await progress_msg.edit(content=None, embeds=[embeds[0]])
+        if len(embeds) > 1:
+            await progress_msg.reply(embeds=[embeds[1]])
 
     except Exception as e:
         progress_done.set()
