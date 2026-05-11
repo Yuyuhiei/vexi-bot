@@ -858,6 +858,7 @@ async def study_command(
     source_url = None
     tmp_path = None
     tmp_dir = None
+    downloaded_video_path_for_discord = None
 
     intro_text = f"🔍 **Vexi is studying a video for {interaction.user.mention}...** Hang tight!"
     if niche:
@@ -949,24 +950,7 @@ async def study_command(
             else:
                 tmp_dir = os.path.dirname(tmp_path)
                 log.info(f"yt-dlp downloaded to: {tmp_path}")
-                # Post the downloaded video in Discord so creators can see the source
-                try:
-                    ext = Path(tmp_path).suffix.lower()
-                    friendly_name = f"{source_label.lower().replace(' ', '_')}{ext}"
-                    await interaction.followup.send(
-                        content=f"📹 **Original {source_label} video:**",
-                        file=discord.File(tmp_path, filename=friendly_name),
-                    )
-                except discord.HTTPException as e:
-                    if e.status == 413:
-                        log.warning(f"Video too large to attach to Discord: {tmp_path}")
-                        await interaction.followup.send(
-                            content=f"📹 **Original video (too large to attach):** {source_url}"
-                        )
-                    else:
-                        log.warning(f"Could not attach video to Discord: {e}")
-                except Exception as e:
-                    log.warning(f"Could not attach video to Discord: {e}")
+                downloaded_video_path_for_discord = tmp_path
                 study = await _analyze_local_file_with_gemini(tmp_path, prompt=active_prompt)
         elif is_discord_cdn:
             log.info("Discord CDN URL — using upload fallback.")
@@ -991,9 +975,29 @@ async def study_command(
         await progress_task
 
         _, embeds = build_study_message(study, source_label=source_label)
-        await progress_msg.edit(content=None, embeds=[embeds[0]])
-        if len(embeds) > 1:
-            await progress_msg.reply(embeds=[embeds[1]])
+
+        # Delete the progress bar so only two messages remain: intro + results
+        try:
+            await progress_msg.delete()
+        except Exception:
+            pass
+
+        # Build the single reply: video (if downloaded) + both embeds
+        send_kwargs: dict = {"embeds": embeds}
+        if downloaded_video_path_for_discord and os.path.exists(downloaded_video_path_for_discord):
+            ext = Path(downloaded_video_path_for_discord).suffix.lower()
+            friendly_name = f"{source_label.lower().replace(' ', '_')}{ext}"
+            send_kwargs["file"] = discord.File(downloaded_video_path_for_discord, filename=friendly_name)
+
+        try:
+            await visible_msg.reply(**send_kwargs)
+        except discord.HTTPException as e:
+            if e.status == 413 and "file" in send_kwargs:
+                del send_kwargs["file"]
+                await visible_msg.reply(**send_kwargs)
+                await visible_msg.reply(content=f"📹 Video too large to attach — original: {source_url}")
+            else:
+                raise
 
     except Exception as e:
         progress_done.set()
