@@ -41,6 +41,15 @@ GUILD_ID = os.environ.get("GUILD_ID", "")
 # Coach role ID for auto-detect channel pings (optional)
 COACH_ROLE_ID = os.environ.get("COACH_ROLE_ID", "")
 
+# Apify fallback (used by /study only when yt-dlp fails on Instagram/TikTok)
+APIFY_API_TOKEN = os.environ.get("APIFY_API_TOKEN", "")
+APIFY_INSTAGRAM_ACTOR = os.environ.get("APIFY_INSTAGRAM_ACTOR", "apify/instagram-scraper")
+APIFY_TIKTOK_ACTOR = os.environ.get("APIFY_TIKTOK_ACTOR", "clockworks/free-tiktok-scraper")
+INSTAGRAM_COOKIES_FILE = os.environ.get("INSTAGRAM_COOKIES_FILE", "")
+
+# Last-resort fallback when both yt-dlp and Apify can't fetch the video
+LUMISCRIPT_URL = "https://lumiscript.manus.space/"
+
 # Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("vexi")
@@ -245,19 +254,42 @@ def _is_social_media_url(url: str) -> bool:
 
 
 async def download_with_ytdlp(url: str) -> tuple[str | None, str | None]:
-    """Download a public social media video via yt-dlp. Returns (file_path, error)."""
+    """Download a public social media video via yt-dlp. Returns (file_path, error).
+
+    Hardened: captures yt-dlp logs, retries once with backoff, sends desktop UA,
+    optionally loads cookies from INSTAGRAM_COOKIES_FILE.
+    """
     import yt_dlp
 
     tmp_dir = tempfile.mkdtemp(prefix="vexi_study_")
     output_template = os.path.join(tmp_dir, "video.%(ext)s")
 
+    log_buffer: list[str] = []
+
+    class _YtdlpLogger:
+        def debug(self, msg): pass
+        def info(self, msg): log_buffer.append(f"[info] {msg}")
+        def warning(self, msg): log_buffer.append(f"[warn] {msg}")
+        def error(self, msg): log_buffer.append(f"[err] {msg}")
+
     ydl_opts = {
         "outtmpl": output_template,
         "format": "best[ext=mp4][filesize<100M]/best[filesize<100M]/best",
-        "quiet": True,
-        "no_warnings": True,
         "max_filesize": 100 * 1024 * 1024,
+        "logger": _YtdlpLogger(),
+        "retries": 3,
+        "extractor_retries": 2,
+        "fragment_retries": 3,
+        "socket_timeout": 30,
+        "sleep_interval": 1,
+        "max_sleep_interval": 5,
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        },
     }
+    if INSTAGRAM_COOKIES_FILE and os.path.exists(INSTAGRAM_COOKIES_FILE):
+        ydl_opts["cookiefile"] = INSTAGRAM_COOKIES_FILE
+        log.info(f"yt-dlp using cookie file: {INSTAGRAM_COOKIES_FILE}")
 
     def _download():
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -268,11 +300,129 @@ async def download_with_ytdlp(url: str) -> tuple[str | None, str | None]:
         return None, "Download completed but output file not found."
 
     loop = asyncio.get_event_loop()
+    last_err: str | None = None
+    for attempt in range(2):
+        try:
+            path, err = await loop.run_in_executor(None, _download)
+            if path:
+                return path, None
+            last_err = err
+        except Exception as e:
+            last_err = str(e)
+            log.warning(f"yt-dlp attempt {attempt + 1}/2 failed: {e}")
+            if log_buffer:
+                log.warning("yt-dlp log tail: " + " | ".join(log_buffer[-5:]))
+        for f in Path(tmp_dir).glob("video.*"):
+            try:
+                f.unlink()
+            except Exception:
+                pass
+        if attempt == 0:
+            await asyncio.sleep(8)
+
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+    return None, last_err or "yt-dlp failed for unknown reason."
+
+
+async def download_with_apify(url: str, session: aiohttp.ClientSession) -> tuple[str | None, str | None]:
+    """Apify fallback for Instagram/TikTok. Returns (file_path, error).
+
+    Uses run-sync-get-dataset-items so we don't have to poll. Picks an actor
+    based on URL host. Downloads the resolved video URL to a tmp file.
+    """
+    if not APIFY_API_TOKEN:
+        return None, "APIFY_API_TOKEN not configured."
+
+    if INSTAGRAM_PATTERN.search(url):
+        actor = APIFY_INSTAGRAM_ACTOR
+        actor_input = {
+            "directUrls": [url],
+            "resultsType": "details",
+            "resultsLimit": 1,
+            "addParentData": False,
+        }
+    elif TIKTOK_PATTERN.search(url):
+        actor = APIFY_TIKTOK_ACTOR
+        actor_input = {
+            "postURLs": [url],
+            "resultsPerPage": 1,
+            "shouldDownloadVideos": False,
+        }
+    else:
+        return None, "No Apify actor configured for this URL type."
+
+    actor_path = actor.replace("/", "~")
+    api_url = f"https://api.apify.com/v2/acts/{actor_path}/run-sync-get-dataset-items?token={APIFY_API_TOKEN}"
+
+    log.info(f"Apify fallback: actor={actor}, url={url[:80]}")
     try:
-        return await loop.run_in_executor(None, _download)
+        async with session.post(
+            api_url,
+            json=actor_input,
+            timeout=aiohttp.ClientTimeout(total=180, connect=30),
+        ) as resp:
+            if resp.status not in (200, 201):
+                body = await resp.text()
+                return None, f"Apify HTTP {resp.status}: {body[:200]}"
+            items = await resp.json()
+    except Exception as e:
+        return None, f"Apify request failed: {e}"
+
+    if not isinstance(items, list) or not items:
+        return None, "Apify returned no items (video may be private/deleted)."
+
+    item = items[0]
+    video_url = (
+        (item.get("mediaUrls") or [None])[0]
+        or item.get("videoUrl")
+        or item.get("video_url")
+        or (item.get("videoMeta") or {}).get("downloadAddr")
+    )
+    if not video_url:
+        return None, f"Apify item missing video URL. Available keys: {list(item.keys())[:10]}"
+
+    log.info(f"Apify resolved video URL, downloading: {video_url[:80]}")
+
+    tmp_dir = tempfile.mkdtemp(prefix="vexi_apify_")
+    tmp_path = os.path.join(tmp_dir, "video.mp4")
+    try:
+        async with session.get(
+            video_url,
+            timeout=aiohttp.ClientTimeout(total=120, connect=30),
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+            allow_redirects=True,
+        ) as r:
+            if r.status != 200:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                return None, f"Apify video download failed: HTTP {r.status}"
+            total = 0
+            with open(tmp_path, "wb") as fh:
+                async for chunk in r.content.iter_chunked(256 * 1024):
+                    fh.write(chunk)
+                    total += len(chunk)
+                    if total > 100 * 1024 * 1024:
+                        shutil.rmtree(tmp_dir, ignore_errors=True)
+                        return None, "Apify video exceeds 100MB."
+        log.info(f"Apify download complete: {total / 1024 / 1024:.1f}MB")
+        return tmp_path, None
     except Exception as e:
         shutil.rmtree(tmp_dir, ignore_errors=True)
-        return None, str(e)
+        return None, f"Apify video download error: {e}"
+
+
+def _parse_json_with_repair(text: str) -> dict | None:
+    """Try to parse JSON. If it fails, attempt to extract the largest {...} substring."""
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if m:
+        try:
+            return json.loads(m.group(0))
+        except json.JSONDecodeError:
+            return None
+    return None
 
 
 def convert_gdrive_to_direct(url: str) -> str:
@@ -333,15 +483,15 @@ def _is_retryable(exc: Exception) -> bool:
     return any(code in msg for code in ("503", "429", "unavailable", "resource_exhausted", "resourceexhausted", "too many requests"))
 
 
-async def _gemini_generate(contents: list, retries: int = 3) -> object:
+async def _gemini_generate(contents: list, retries: int = 3, config=None) -> object:
     delays = [5, 15, 30]
     last_exc = None
     for attempt in range(retries):
         try:
-            return gemini_client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=contents,
-            )
+            kwargs = {"model": "gemini-2.5-flash", "contents": contents}
+            if config is not None:
+                kwargs["config"] = config
+            return gemini_client.models.generate_content(**kwargs)
         except Exception as e:
             last_exc = e
             if _is_retryable(e) and attempt < retries - 1:
@@ -353,11 +503,15 @@ async def _gemini_generate(contents: list, retries: int = 3) -> object:
     raise last_exc
 
 
-async def analyze_video_with_gemini(video_url: str, mime_type: str = "video/mp4", prompt: str = None) -> dict:
-    """Send video URL directly to Gemini for review (no local download needed)."""
+async def analyze_video_with_gemini(video_url: str, mime_type: str = "video/mp4", prompt: str = None, response_json: bool = False) -> dict:
+    """Send video URL directly to Gemini for review (no local download needed).
+
+    If response_json=True, asks Gemini to enforce JSON output via response_mime_type.
+    """
     if prompt is None:
         prompt = REVIEW_PROMPT
     raw_text = ""
+    response = None
     try:
         log.info(f"Sending video URL to Gemini: {video_url[:120]}...")
         log.info(f"MIME type: {mime_type}")
@@ -367,8 +521,12 @@ async def analyze_video_with_gemini(video_url: str, mime_type: str = "video/mp4"
             mime_type=mime_type,
         )
 
+        config = None
+        if response_json:
+            config = genai_types.GenerateContentConfig(response_mime_type="application/json")
+
         log.info("Calling Gemini 2.5 Flash for review...")
-        response = await _gemini_generate([video_part, prompt])
+        response = await _gemini_generate([video_part, prompt], config=config)
 
         raw_text = response.text.strip()
         log.info(f"Gemini response length: {len(raw_text)} chars")
@@ -376,13 +534,17 @@ async def analyze_video_with_gemini(video_url: str, mime_type: str = "video/mp4"
             raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
             raw_text = re.sub(r"\s*```$", "", raw_text)
 
-        result = json.loads(raw_text)
+        result = _parse_json_with_repair(raw_text)
+        if result is None:
+            try:
+                fr = response.candidates[0].finish_reason
+            except Exception:
+                fr = "unknown"
+            log.error(f"JSON parse failed (finish_reason={fr}). Raw: {raw_text[:500]}")
+            return {"error": f"AI returned invalid JSON (finish_reason={fr}). Raw excerpt: {raw_text[:300]}"}
         log.info(f"Review complete. Verdict: {result.get('quick_verdict', 'N/A')}")
         return result
 
-    except json.JSONDecodeError as e:
-        log.error(f"JSON parse error: {e}\nRaw: {raw_text[:500]}")
-        return {"error": f"AI returned invalid JSON. Raw excerpt: {raw_text[:300]}"}
     except Exception as e:
         log.error(f"Gemini error: {type(e).__name__}: {e}")
         import traceback
@@ -390,11 +552,17 @@ async def analyze_video_with_gemini(video_url: str, mime_type: str = "video/mp4"
         return {"error": str(e)}
 
 
-async def _analyze_local_file_with_gemini(file_path: str, prompt: str = None) -> dict:
-    """Upload a local file to Gemini File API and analyze it."""
+async def _analyze_local_file_with_gemini(file_path: str, prompt: str = None, response_json: bool = False) -> dict:
+    """Upload a local file to Gemini File API and analyze it.
+
+    If response_json=True, asks Gemini to enforce JSON output via response_mime_type.
+    On JSON parse failure, includes a raw excerpt and finish_reason in the error.
+    """
     if prompt is None:
         prompt = REVIEW_PROMPT
     raw_text = ""
+    response = None
+    uploaded_file = None
     try:
         mime = guess_mime_type(file_path)
         log.info(f"Uploading local file to Gemini File API: {file_path} ({mime})")
@@ -411,30 +579,39 @@ async def _analyze_local_file_with_gemini(file_path: str, prompt: str = None) ->
         if uploaded_file.state.name != "ACTIVE":
             return {"error": f"File processing failed. State: {uploaded_file.state.name}"}
 
-        response = await _gemini_generate([uploaded_file, prompt])
+        config = None
+        if response_json:
+            config = genai_types.GenerateContentConfig(response_mime_type="application/json")
+
+        response = await _gemini_generate([uploaded_file, prompt], config=config)
         raw_text = response.text.strip()
+        log.info(f"Gemini response length: {len(raw_text)} chars")
         if raw_text.startswith("```"):
             raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
             raw_text = re.sub(r"\s*```$", "", raw_text)
 
-        result = json.loads(raw_text)
+        result = _parse_json_with_repair(raw_text)
 
         try:
             gemini_client.files.delete(name=uploaded_file.name)
         except Exception:
             pass
 
+        if result is None:
+            try:
+                fr = response.candidates[0].finish_reason
+            except Exception:
+                fr = "unknown"
+            log.error(f"JSON parse failed (finish_reason={fr}). Raw: {raw_text[:500]}")
+            return {"error": f"AI returned invalid JSON (finish_reason={fr}). Raw excerpt: {raw_text[:300]}"}
         return result
 
-    except json.JSONDecodeError as e:
-        log.error(f"JSON parse error: {e}\nRaw: {raw_text[:500]}")
-        return {"error": "AI returned invalid JSON."}
     except Exception as e:
         log.error(f"Local file Gemini upload error: {type(e).__name__}: {e}")
         return {"error": str(e)}
 
 
-async def analyze_video_with_gemini_upload(video_url: str, session: aiohttp.ClientSession, prompt: str = None) -> dict:
+async def analyze_video_with_gemini_upload(video_url: str, session: aiohttp.ClientSession, prompt: str = None, response_json: bool = False) -> dict:
     """Fallback: Download video and upload to Gemini File API."""
     if prompt is None:
         prompt = REVIEW_PROMPT
@@ -474,7 +651,7 @@ async def analyze_video_with_gemini_upload(video_url: str, session: aiohttp.Clie
             video_path = tmp.name
             log.info(f"Downloaded {total / 1024 / 1024:.1f}MB to {video_path}")
 
-        return await _analyze_local_file_with_gemini(video_path, prompt)
+        return await _analyze_local_file_with_gemini(video_path, prompt, response_json=response_json)
 
     except Exception as e:
         log.error(f"Gemini upload fallback error: {type(e).__name__}: {e}")
@@ -580,9 +757,26 @@ def build_review_message(review: dict, creator: str = None) -> tuple[str | None,
 def build_study_message(study: dict, source_label: str = "Video") -> tuple[str | None, list[discord.Embed]]:
     """Convert a Gemini Study Mode JSON result into a Discord embed."""
     if "error" in study:
+        err_msg = study["error"]
+        is_download_fail = err_msg.startswith("DOWNLOAD_FAILED:")
+        if is_download_fail:
+            err_msg = err_msg[len("DOWNLOAD_FAILED:"):].strip()
+
+        desc = f"Something went wrong:\n```{err_msg[:500]}```\n"
+        if is_download_fail:
+            desc += (
+                f"\n💡 **Both yt-dlp and Apify couldn't fetch this video.** "
+                f"Instagram or TikTok may be blocking automated access right now.\n\n"
+                f"**Try this instead:** Paste the video at **{LUMISCRIPT_URL}** — "
+                f"it's another Manus platform that reviews scripts and can analyze the video for you.\n\n"
+                f"Or download the video manually and re-run `/study video:` with the file attached."
+            )
+        else:
+            desc += "Make sure the video is public and in a supported format."
+
         err_embed = discord.Embed(
             title="Vexi Study — Error",
-            description=f"Something went wrong:\n```{study['error'][:500]}```\nMake sure the video is public and in a supported format.",
+            description=desc,
             color=discord.Color.red(),
         )
         return (None, [err_embed])
@@ -945,31 +1139,49 @@ async def study_command(
                 content="⏳ **Vexi is studying the format...**\n▓▁▁▁▁▁▁▁▁▁ 📥 Downloading from social media..."
             )
             tmp_path, dl_error = await download_with_ytdlp(source_url)
-            if dl_error or not tmp_path:
-                study = {"error": f"Could not download video: {dl_error or 'Unknown error'}. Make sure the video is public."}
+
+            # Fallback: Apify (Instagram/TikTok only) when yt-dlp fails
+            if (not tmp_path) and (INSTAGRAM_PATTERN.search(source_url) or TIKTOK_PATTERN.search(source_url)):
+                if APIFY_API_TOKEN:
+                    log.warning(f"yt-dlp failed ({dl_error}). Trying Apify fallback...")
+                    try:
+                        await progress_msg.edit(
+                            content="⏳ **Vexi is studying the format...**\n▓▓▁▁▁▁▁▁▁▁ 🔄 yt-dlp blocked, trying Apify..."
+                        )
+                    except Exception:
+                        pass
+                    async with aiohttp.ClientSession() as sess:
+                        tmp_path, apify_err = await download_with_apify(source_url, sess)
+                    if not tmp_path:
+                        dl_error = f"yt-dlp: {dl_error} | apify: {apify_err}"
+                else:
+                    log.warning("yt-dlp failed and APIFY_API_TOKEN not set — skipping Apify fallback.")
+
+            if not tmp_path:
+                study = {"error": f"DOWNLOAD_FAILED: {dl_error or 'Unknown error'}"}
             else:
                 tmp_dir = os.path.dirname(tmp_path)
-                log.info(f"yt-dlp downloaded to: {tmp_path}")
+                log.info(f"Download succeeded: {tmp_path}")
                 downloaded_video_path_for_discord = tmp_path
-                study = await _analyze_local_file_with_gemini(tmp_path, prompt=active_prompt)
+                study = await _analyze_local_file_with_gemini(tmp_path, prompt=active_prompt, response_json=True)
         elif is_discord_cdn:
             log.info("Discord CDN URL — using upload fallback.")
             async with aiohttp.ClientSession() as sess:
-                study = await analyze_video_with_gemini_upload(source_url, sess, prompt=active_prompt)
+                study = await analyze_video_with_gemini_upload(source_url, sess, prompt=active_prompt, response_json=True)
         elif is_gdrive:
             direct_url = convert_gdrive_to_direct(source_url)
-            study = await analyze_video_with_gemini(direct_url, prompt=active_prompt)
+            study = await analyze_video_with_gemini(direct_url, prompt=active_prompt, response_json=True)
             if "error" in study:
                 log.info(f"Direct GDrive failed, trying upload fallback...")
                 async with aiohttp.ClientSession() as sess:
-                    study = await analyze_video_with_gemini_upload(direct_url, sess, prompt=active_prompt)
+                    study = await analyze_video_with_gemini_upload(direct_url, sess, prompt=active_prompt, response_json=True)
         else:
             mime = guess_mime_type(source_url, video.filename if video else "")
-            study = await analyze_video_with_gemini(source_url, mime_type=mime, prompt=active_prompt)
+            study = await analyze_video_with_gemini(source_url, mime_type=mime, prompt=active_prompt, response_json=True)
             if "error" in study:
                 log.info(f"Direct URL failed, trying upload fallback...")
                 async with aiohttp.ClientSession() as sess:
-                    study = await analyze_video_with_gemini_upload(source_url, sess, prompt=active_prompt)
+                    study = await analyze_video_with_gemini_upload(source_url, sess, prompt=active_prompt, response_json=True)
 
         progress_done.set()
         await progress_task
