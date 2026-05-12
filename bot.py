@@ -45,6 +45,10 @@ COACH_ROLE_ID = os.environ.get("COACH_ROLE_ID", "")
 APIFY_API_TOKEN = os.environ.get("APIFY_API_TOKEN", "")
 APIFY_INSTAGRAM_ACTOR = os.environ.get("APIFY_INSTAGRAM_ACTOR", "apify/instagram-scraper")
 APIFY_TIKTOK_ACTOR = os.environ.get("APIFY_TIKTOK_ACTOR", "clockworks/free-tiktok-scraper")
+# Set APIFY_USE_PROXY=true to route the video-bytes download through Apify's
+# residential proxy. Costs Apify proxy bandwidth (~$8/GB) but bypasses Instagram
+# CDN's datacenter-IP block that returns 403 on raw downloads.
+APIFY_USE_PROXY = os.environ.get("APIFY_USE_PROXY", "").strip().lower() in ("1", "true", "yes", "on")
 INSTAGRAM_COOKIES_FILE = os.environ.get("INSTAGRAM_COOKIES_FILE", "")
 
 # Last-resort fallback when both yt-dlp and Apify can't fetch the video
@@ -381,7 +385,31 @@ async def download_with_apify(url: str, session: aiohttp.ClientSession) -> tuple
     if not video_url:
         return None, f"Apify item missing video URL. Available keys: {list(item.keys())[:10]}"
 
-    log.info(f"Apify resolved video URL, downloading: {video_url[:80]}")
+    log.info(f"Apify scrape OK, downloading video: {video_url[:80]}")
+
+    # Instagram CDN returns 403 to bare datacenter requests. Mimic a real Safari
+    # request initiated from instagram.com — User-Agent, Referer, Range, and the
+    # Sec-Fetch-* trio together unblock most 403s when the signed URL is fresh.
+    ig_headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "identity;q=1, *;q=0",
+        "Range": "bytes=0-",
+        "Referer": "https://www.instagram.com/",
+        "Origin": "https://www.instagram.com",
+        "Sec-Fetch-Dest": "video",
+        "Sec-Fetch-Mode": "no-cors",
+        "Sec-Fetch-Site": "cross-site",
+        "Connection": "keep-alive",
+    }
+
+    proxy = None
+    proxy_auth = None
+    if APIFY_USE_PROXY and APIFY_API_TOKEN:
+        proxy = "http://proxy.apify.com:8000"
+        proxy_auth = aiohttp.BasicAuth("groups-RESIDENTIAL", APIFY_API_TOKEN)
+        log.info("Routing video download through Apify residential proxy")
 
     tmp_dir = tempfile.mkdtemp(prefix="vexi_apify_")
     tmp_path = os.path.join(tmp_dir, "video.mp4")
@@ -389,12 +417,16 @@ async def download_with_apify(url: str, session: aiohttp.ClientSession) -> tuple
         async with session.get(
             video_url,
             timeout=aiohttp.ClientTimeout(total=120, connect=30),
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+            headers=ig_headers,
+            proxy=proxy,
+            proxy_auth=proxy_auth,
             allow_redirects=True,
         ) as r:
-            if r.status != 200:
+            # Range header makes IG return 206 Partial Content — accept both.
+            if r.status not in (200, 206):
                 shutil.rmtree(tmp_dir, ignore_errors=True)
-                return None, f"Apify video download failed: HTTP {r.status}"
+                proxy_note = " (via Apify proxy)" if proxy else " (direct)"
+                return None, f"Apify scrape OK but CDN download blocked: HTTP {r.status}{proxy_note}"
             total = 0
             with open(tmp_path, "wb") as fh:
                 async for chunk in r.content.iter_chunked(256 * 1024):
