@@ -1261,11 +1261,245 @@ async def study_command(
 
 
 # ---------------------------------------------------------------------------
+# Mention Handler: @Vexi study <url>
+# ---------------------------------------------------------------------------
+async def handle_mention_study(message: discord.Message, content_after_mention: str):
+    """Handle @Vexi study <url> [niche:...] mentions from any channel."""
+    text = content_after_mention.strip()
+
+    # No keyword at all — generic help
+    if not text:
+        await message.reply(
+            "👋 Hey! I'm **Vexi**, your UGC review buddy.\n\n"
+            "To study a video format, use:\n"
+            "`@Vexi study <Instagram/TikTok/YouTube link>`\n\n"
+            "**Example:** `@Vexi study https://www.instagram.com/reel/abc123`\n\n"
+            "You can also add niche context:\n"
+            "`@Vexi study https://www.tiktok.com/... niche:productivity SaaS`\n\n"
+            "Not sure what to do? Ask your coach for help! 🙌"
+        )
+        return
+
+    # Wrong keyword (mentioned bot but typed something other than "study")
+    if not text.lower().startswith("study"):
+        await message.reply(
+            "🤔 Hmm, I didn't catch that!\n\n"
+            "To study a video, type:\n"
+            "`@Vexi study <Instagram/TikTok/YouTube link>`\n\n"
+            "**Example:** `@Vexi study https://www.instagram.com/reel/abc123`\n\n"
+            "If you need help, reach out to your coach! 🙌"
+        )
+        return
+
+    # Strip "study" and parse the rest
+    rest = text[len("study"):].strip()
+
+    # Parse optional niche: param (e.g. "niche:productivity SaaS")
+    niche = None
+    niche_match = re.search(r'\bniche:(.+?)(?=\s+https?://|\s*$)', rest, re.IGNORECASE)
+    if niche_match:
+        niche = niche_match.group(1).strip()
+
+    # Extract URL
+    url_match = re.search(r'https?://\S+', rest)
+    if not url_match:
+        await message.reply(
+            "❌ I need a link to study!\n\n"
+            "**Format:** `@Vexi study <link>`\n"
+            "**Example:** `@Vexi study https://www.instagram.com/reel/abc123`\n\n"
+            "Supports Instagram Reels, TikTok, YouTube, Google Drive, and direct video links.\n"
+            "If you're stuck, ask your coach for help! 🙌"
+        )
+        return
+
+    source_url = url_match.group(0).rstrip(".,;)")  # strip trailing punctuation
+
+    # Validate it's a URL type we can handle
+    is_social = _is_social_media_url(source_url)
+    is_gdrive = bool(GDRIVE_PATTERN.search(source_url) or GDRIVE_OPEN_PATTERN.search(source_url))
+    has_video_ext = any(source_url.lower().endswith(ext) for ext in VIDEO_EXTENSIONS)
+
+    if not (is_social or is_gdrive or has_video_ext):
+        await message.reply(
+            "❌ That doesn't look like a supported video link.\n\n"
+            "I can study links from:\n"
+            "• **Instagram** — `instagram.com/reel/...`\n"
+            "• **TikTok** — `tiktok.com/...`\n"
+            "• **YouTube** — `youtube.com/watch?...` or `youtu.be/...`\n"
+            "• **Google Drive** — `drive.google.com/file/d/...`\n"
+            "• **Direct video links** (.mp4, .mov, etc.)\n\n"
+            "If you're unsure, ask your coach for help! 🙌"
+        )
+        return
+
+    # Determine source label
+    if INSTAGRAM_PATTERN.search(source_url):
+        source_label = "Instagram"
+    elif TIKTOK_PATTERN.search(source_url):
+        source_label = "TikTok"
+    elif YOUTUBE_PATTERN.search(source_url):
+        source_label = "YouTube"
+    elif is_gdrive:
+        source_label = "Google Drive"
+    else:
+        source_label = "Direct Link"
+
+    # Kick off — react and show intro
+    try:
+        await message.add_reaction("🔍")
+    except Exception:
+        pass
+
+    intro_text = f"🔍 **Vexi is studying a video for {message.author.mention}...** Hang tight!"
+    if niche:
+        intro_text += f"\n📌 Niche context: *{niche}*"
+    intro_text += f"\n🎬 Video: {source_url}"
+    visible_msg = await message.reply(content=intro_text)
+
+    progress_msg = await visible_msg.reply(
+        content="⏳ **Vexi is studying the format...**\n▁▁▁▁▁▁▁▁▁▁ Loading video..."
+    )
+
+    progress_done = asyncio.Event()
+
+    async def update_progress():
+        stages = [
+            ("▓▓▁▁▁▁▁▁▁▁", "🎬 Watching the video..."),
+            ("▓▓▓▓▁▁▁▁▁▁", "🎬 Watching the video..."),
+            ("▓▓▓▓▓▁▁▁▁▁", "🔍 Breaking down the format..."),
+            ("▓▓▓▓▓▓▁▁▁▁", "🔍 Analyzing hook & structure..."),
+            ("▓▓▓▓▓▓▓▁▁▁", "🔄 Building Manus adaptation brief..."),
+            ("▓▓▓▓▓▓▓▓▁▁", "🔄 Building Manus adaptation brief..."),
+            ("▓▓▓▓▓▓▓▓▓▁", "📋 Writing the outline..."),
+            ("▓▓▓▓▓▓▓▓▓▓", "✅ Almost done..."),
+        ]
+        for bar, status in stages:
+            if progress_done.is_set():
+                return
+            try:
+                await progress_msg.edit(content=f"⏳ **Vexi is studying the format...**\n{bar} {status}")
+            except Exception:
+                return
+            try:
+                await asyncio.wait_for(progress_done.wait(), timeout=15)
+                return
+            except asyncio.TimeoutError:
+                continue
+
+    progress_task = asyncio.create_task(update_progress())
+
+    active_prompt = STUDY_PROMPT
+    if niche:
+        active_prompt = STUDY_PROMPT + f"\n\nNICHE CONTEXT PROVIDED BY SUBMITTER: {niche}\nTailor your Manus adaptation and suggested outline to this niche specifically.\n"
+
+    tmp_path = None
+    tmp_dir = None
+    downloaded_video_path_for_discord = None
+
+    try:
+        if is_social:
+            log.info(f"[mention] Social URL — yt-dlp: {source_url[:80]}")
+            await progress_msg.edit(
+                content="⏳ **Vexi is studying the format...**\n▓▁▁▁▁▁▁▁▁▁ 📥 Downloading from social media..."
+            )
+            tmp_path, dl_error = await download_with_ytdlp(source_url)
+
+            if (not tmp_path) and (INSTAGRAM_PATTERN.search(source_url) or TIKTOK_PATTERN.search(source_url)):
+                if APIFY_API_TOKEN:
+                    log.warning(f"[mention] yt-dlp failed ({dl_error}). Trying Apify...")
+                    try:
+                        await progress_msg.edit(
+                            content="⏳ **Vexi is studying the format...**\n▓▓▁▁▁▁▁▁▁▁ 🔄 yt-dlp blocked, trying Apify..."
+                        )
+                    except Exception:
+                        pass
+                    async with aiohttp.ClientSession() as sess:
+                        tmp_path, apify_err = await download_with_apify(source_url, sess)
+                    if not tmp_path:
+                        dl_error = f"yt-dlp: {dl_error} | apify: {apify_err}"
+
+            if not tmp_path:
+                study = {"error": f"DOWNLOAD_FAILED: {dl_error or 'Unknown error'}"}
+            else:
+                tmp_dir = os.path.dirname(tmp_path)
+                downloaded_video_path_for_discord = tmp_path
+                study = await _analyze_local_file_with_gemini(tmp_path, prompt=active_prompt, response_json=True)
+        elif is_gdrive:
+            direct_url = convert_gdrive_to_direct(source_url)
+            study = await analyze_video_with_gemini(direct_url, prompt=active_prompt, response_json=True)
+            if "error" in study:
+                async with aiohttp.ClientSession() as sess:
+                    study = await analyze_video_with_gemini_upload(direct_url, sess, prompt=active_prompt, response_json=True)
+        else:
+            mime = guess_mime_type(source_url)
+            study = await analyze_video_with_gemini(source_url, mime_type=mime, prompt=active_prompt, response_json=True)
+            if "error" in study:
+                async with aiohttp.ClientSession() as sess:
+                    study = await analyze_video_with_gemini_upload(source_url, sess, prompt=active_prompt, response_json=True)
+
+        progress_done.set()
+        await progress_task
+
+        _, embeds = build_study_message(study, source_label=source_label)
+
+        try:
+            await progress_msg.delete()
+        except Exception:
+            pass
+
+        send_kwargs: dict = {"embeds": embeds}
+        if downloaded_video_path_for_discord and os.path.exists(downloaded_video_path_for_discord):
+            ext = Path(downloaded_video_path_for_discord).suffix.lower()
+            friendly_name = f"{source_label.lower().replace(' ', '_')}{ext}"
+            send_kwargs["file"] = discord.File(downloaded_video_path_for_discord, filename=friendly_name)
+
+        try:
+            await visible_msg.reply(**send_kwargs)
+        except discord.HTTPException as e:
+            if e.status == 413 and "file" in send_kwargs:
+                del send_kwargs["file"]
+                await visible_msg.reply(**send_kwargs)
+                await visible_msg.reply(content=f"📹 Video too large to attach — original: {source_url}")
+            else:
+                raise
+
+    except Exception as e:
+        progress_done.set()
+        await progress_task
+        log.error(f"[mention] Study error: {type(e).__name__}: {e}")
+        await progress_msg.edit(
+            content=f"❌ Something went wrong. Please try again.\nError: {str(e)[:200]}"
+        )
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+        if tmp_dir and os.path.isdir(tmp_dir):
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    try:
+        await message.remove_reaction("🔍", bot.user)
+        await message.add_reaction("✅")
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Auto-Detect in Configured Channels
 # ---------------------------------------------------------------------------
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
+        return
+
+    # @Vexi study <url> — works in any channel
+    if bot.user in message.mentions:
+        content = message.content
+        for mention_str in (f"<@{bot.user.id}>", f"<@!{bot.user.id}>"):
+            content = content.replace(mention_str, "").strip()
+        await handle_mention_study(message, content)
         return
 
     if message.channel.id not in VEXI_CHANNEL_IDS:
