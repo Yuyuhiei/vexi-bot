@@ -91,39 +91,32 @@ If the video is NOT related to Manus at all (e.g., random memes, personal vlogs,
 If the video IS related to Manus, set "manus_relevant" to true and proceed.
 
 ═══════════════════════════════════════
-LAYER 0.5: MONEY & INCOME CLAIM SCAN (v1.2 — RUN BEFORE ALL OTHER CHECKS)
+LAYER 0.5: MONEY & INCOME CLAIM SCAN — ZERO TOLERANCE (v1.3 — RUN BEFORE ALL OTHER CHECKS)
 ═══════════════════════════════════════
-Scan ALL audio, on-screen text, captions, and visuals for AUTO-REJECT keywords. These are absolute violations that require immediate escalation regardless of context.
+Scan ALL audio, on-screen text, captions, and visuals for ANY money-making language. This is a zero-tolerance policy — even vague or indirect suggestions that Manus can help someone make money are AUTO-REJECT.
 
-AUTO-REJECT PHRASES — if ANY of these are detected, set "quick_verdict" to "AUTO-REJECT":
-- "guaranteed income" / "guarantees income" / "guarantee you'll make"
-- "make you rich" / "will make you rich" / "Manus will make you rich"
-- "100% success" / "100% results"
-- "zero risk"
-- "easy money"
-- "everyone earns" / "everyone will earn"
-- "get rich quick"
-- "passive income" (when presented as a Manus guarantee, not a personal goal)
-- "financial freedom" (when presented as a Manus guarantee)
-- Any phrasing that equates using Manus with a guaranteed dollar outcome (e.g., "use Manus and earn $X guaranteed")
+AUTO-REJECT — ANY of the following triggers immediate rejection, with or without specific numbers:
+- Any phrasing that connects using Manus to earning money, generating income, or financial gain for the creator or viewer
+- "You can make money with this" / "earn with Manus" / "make money using Manus"
+- "this helped me earn" / "I make income from this" / "how I monetize with Manus"
+- Any dollar or currency amounts tied to personal earnings (e.g. "$5k/month", "₱10,000", "earn $X")
+- "passive income" / "financial freedom" / "side hustle income" / "extra income"
+- "guaranteed income" / "make you rich" / "easy money" / "get rich quick" / "zero risk" / "100% success"
+- "anyone can earn" / "you will make" / "this pays" / "turn this into income"
+- Implied "use Manus = you will make money" — even without numbers, even framed as a possibility
+- General money-making opportunity framing, even softly worded (e.g. "great way to earn on the side")
 
-If AUTO-REJECT keyword(s) are found:
+If AUTO-REJECT is triggered:
 - Set "quick_verdict" to "AUTO-REJECT"
-- In "legal_paragraph", clearly name the exact phrase(s) detected with an [AUTO-REJECT] tag and timestamp if possible
+- In "legal_paragraph", clearly name the exact phrase(s) with an [AUTO-REJECT] tag and timestamp if possible
 - Still complete all remaining checks below (the coach needs the full picture)
+- In "overall_summary", end with: "If you think this is a mistake, please tag your coach for a manual review."
 
-MONEY CLAIM GUARDRAILS — HIGH RISK (not auto-reject, but flag as [HIGH]):
-- Any claim that Manus guarantees income or financial results, even without using the exact banned phrases
-- Implied "use Manus = you will make money" framing without explicit disclaimers or personal attribution
-- Specific dollar amounts (e.g., "$5k/month", "$10,000") stated as achievable outcomes without attached verifiable evidence
-- Income or ROI promises framed as universally applicable ("you will earn", "anyone can make")
+NARROW EXCEPTIONS — only these specific cases are NOT auto-reject:
+- Pure technical payment-flow demos with zero income framing: "I built a site that accepts Stripe payments" (showing the feature, making no claim about earnings)
+- Workflow efficiency with no money angle: "Manus automated my research in 10 minutes" (time saved, not money made)
 
-ALLOWED MONEY FRAMING (compliant — do NOT flag these):
-- Personal progress journaling with no guarantee: "Day 1 of my journey toward $5k/month — here are the tools I'm using"
-- Third-party user results with explicit evidence: "My friend made $X — here's their proof and the process they used"
-- Process/skill teaching with no income promise: "How to land your first clients using Manus"
-- Scenario-specific time savings with proof: "This report took 4 hours manually, Manus did it in 12 minutes (with evidence)"
-- Payment capability demos: "I built a site that can accept payments via Stripe" (showing the flow, not promising profit)
+When in doubt, AUTO-REJECT. It is always safer to escalate to a coach than to approve money-adjacent content.
 
 ═══════════════════════════════════════
 WHAT TO CHECK (Internal — use these to inform your paragraphs)
@@ -171,7 +164,7 @@ Return ONLY a valid JSON object (no markdown, no code fences) with this exact st
   "legal_paragraph": "Write a SHORT conversational paragraph (3-5 sentences max) summarizing the legal compliance findings. If AUTO-REJECT keywords were found, lead with them clearly using [AUTO-REJECT] and the exact phrase. Then naturally weave in any other flags — mention the specific issue, the risk level in brackets like [HIGH] or [MEDIUM], and the timestamp if applicable. If there are no flags, say so briefly. Always end with the music soft reminder (if music was detected) and the ad-disclosure hashtag reminder as natural sentences. Example tone for clean video: 'No major legal flags here! No income guarantees, absolute claims, or copyrighted content spotted. One soft note — at 0:15 there's a time-saved claim without visible proof [MEDIUM], so your coach might want to verify that. I hear some background music, so just confirm it's from a licensed source. And remember to pop an ad-disclosure hashtag like #ManusAd in your caption when posting!'",
   "content_paragraph": "Write a SHORT conversational paragraph (3-5 sentences max) summarizing the UGC fundamentals. Cover safe zones, lighting/audio, the hook (mention which of the 12 categories it fits and whether it's strong or could be improved — suggest a specific alternative if weak), and pacing. Be constructive and specific. Example tone: 'Lighting and audio are solid — your face is well-lit and the sound is crisp. Safe zones look good for IG and TikTok. Your hook falls into the Demo/How-To category and it's decent, but it could be punchier — try opening with something like \"I built an entire website in 30 seconds\" to create more instant curiosity. Pacing is smooth throughout with no dead air.'",
   "quick_verdict": "LOOKS GOOD / NEEDS REVIEW / COACH ATTENTION NEEDED / AUTO-REJECT / NOT MANUS CONTENT",
-  "overall_summary": "One final sentence. Always include: 'A human coach will review this shortly for final approval.' If AUTO-REJECT, start with: 'This video contains auto-reject language and must be reviewed by a coach before any use.'"
+  "overall_summary": "One final sentence. Always include: 'A human coach will review this shortly for final approval.' If AUTO-REJECT, start with: 'This video contains auto-reject language and must be reviewed by a coach before any use.' then end with: 'If you think this is a mistake, please tag your coach for a manual review.'"
 }
 
 CRITICAL RULES FOR THE PARAGRAPHS:
@@ -1496,6 +1489,12 @@ async def on_message(message: discord.Message):
 
     # @Vexi study <url> — works in any channel
     if bot.user in message.mentions:
+        # Ignore replies to Vexi's own messages (Discord auto-includes the mention on reply)
+        if message.reference is not None:
+            ref = message.reference.resolved
+            if isinstance(ref, discord.Message) and ref.author.id == bot.user.id:
+                await bot.process_commands(message)
+                return
         content = message.content
         for mention_str in (f"<@{bot.user.id}>", f"<@!{bot.user.id}>"):
             content = content.replace(mention_str, "").strip()
