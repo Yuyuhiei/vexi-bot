@@ -784,6 +784,18 @@ def build_review_message(review: dict, creator: str = None) -> tuple[str | None,
     summary = review.get("overall_summary", "A human coach will review this shortly for final approval.")
     parts.append(f"\n📝 **Summary:** {summary}")
 
+    # Risk grid — 9×9 colored squares, always at the very bottom
+    _risk_grid = {
+        "LOOKS GOOD":             ("🟢", "LOW RISK"),
+        "NEEDS REVIEW":           ("🟡", "MEDIUM RISK"),
+        "COACH ATTENTION NEEDED": ("🟠", "HIGH RISK"),
+        "AUTO-REJECT":            ("🔴", "CRITICAL — AUTO-REJECT"),
+    }
+    grid_emoji, grid_label = _risk_grid.get(verdict, ("🟡", "MEDIUM RISK"))
+    grid_row = grid_emoji * 9
+    grid_block = "\n".join([grid_row] * 9)
+    parts.append(f"\n**{grid_label}**\n{grid_block}")
+
     embed = discord.Embed(
         title=f"Vexi Review — {verdict}",
         description="\n".join(parts),
