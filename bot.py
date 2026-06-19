@@ -141,7 +141,13 @@ LEGAL COMPLIANCE CHECKS (v1.2 Checklist):
 1. Income & Money Claims — See LAYER 0.5 above. Follow the three-tier system: AUTO-REJECT for explicit claims, third-party earnings, cost-saving amounts, banned phrases, and on-screen revenue proof; [MEDIUM] for aspirational goal language or background dashboards; ignore song lyrics, slang, and productivity framing entirely. (HIGH RISK / AUTO-REJECT)
 2. Absolute Claims — Phrases like "100%", "zero errors", "fully replaces humans", "best AI" without proof. (HIGH RISK)
 3. Efficiency Numbers Without Proof — Time-saved or speed claims (e.g., "build a site in 10 minutes", "save 5 hours") require real supporting data or evidence. Flag if none is visible. (MEDIUM RISK)
-4. Copyrighted / Trademarked Material — ZERO TOLERANCE. UGC is a paid advertisement, so any famous brand, logo, celebrity, or copyrighted character that the creator does not own CANNOT be published as-is. This includes: brand logos (Nike, Adidas, Apple, etc.), copyrighted characters (Disney, Marvel, anime, Iron Man, etc.), celebrity names/images/likenesses (e.g. David Goggins, Robert Downey Jr.), and protected event branding (FIFA World Cup, Olympics, named teams/players/jersey numbers). Flag every instance as [HIGH] with the exact element and timestamp, and clearly tell the creator it must be REMOVED — they can regenerate any AI image with a prompt that omits the logo/character/likeness. EXCEPTIONS (do NOT flag): a copyrighted character appearing incidentally in the background or on a desktop screen for under 2 seconds; a creator simply wearing a branded jersey or shirt (e.g. an Adidas tee) as everyday clothing. (HIGH RISK)
+4. Copyrighted / Trademarked Material — UGC is a paid advertisement, so any famous brand, logo, celebrity, or copyrighted character that the creator does not own CANNOT be published as-is. This includes: brand logos (Nike, Adidas, Apple, etc.), copyrighted characters (Disney, Marvel, anime, Iron Man, etc.), celebrity names/images/likenesses (e.g. David Goggins, Robert Downey Jr.), and protected event branding (FIFA World Cup, Olympics, named teams/players/jersey numbers). When you do flag, name the exact element and timestamp and tell the creator it must be REMOVED — they can regenerate any AI image with a prompt that omits the logo/character/likeness.
+   ANTI-HALLUCINATION RULES (CRITICAL — read before flagging anything as copyrighted):
+   - Only flag a specific brand/character/celebrity when it is CLEARLY and UNAMBIGUOUSLY identifiable. Cite the concrete visual evidence you actually see (readable logo text, an exact name on screen, a truly distinctive and unmistakable design).
+   - Do NOT name-match. A generic yellow square character is NOT automatically SpongeBob; generic round candy is NOT automatically M&M's; a muscular bald man is NOT automatically David Goggins. Original, generic, or merely similar-looking characters are FINE and must NOT be flagged.
+   - If something only RESEMBLES a known IP but you are not confident, do NOT assert the IP. Either say nothing, or note it softly as [MEDIUM] "this generic character may read as similar to <X> — worth a human glance" without claiming it IS that IP.
+   - When uncertain, default to NOT flagging. A false copyright flag is worse than a missed borderline one, because a coach reviews everything anyway.
+   EXCEPTIONS (do NOT flag): a copyrighted character appearing incidentally in the background or on a desktop screen for under 2 seconds; a creator simply wearing a branded jersey or shirt (e.g. an Adidas tee) as everyday clothing. (HIGH RISK)
 5. Fake Reviews or Testimonials — Actors scripting fake customer stories, fake "first-time" reactions. (HIGH RISK)
 6. Exaggerated or Unproven Claims — Unprovable numerical claims beyond income (e.g., "10x your revenue"). Personal honest experiences without guarantees are fine. (MEDIUM RISK)
 7. People Without Permission — Identifiable bystanders, friends, or children without release. (MEDIUM RISK)
@@ -573,9 +579,12 @@ async def analyze_video_with_gemini(video_url: str, mime_type: str = "video/mp4"
             mime_type=mime_type,
         )
 
-        config = None
+        # Low temperature reduces hallucinated copyright/IP matches (e.g. calling a
+        # generic character "SpongeBob"). 0.2 keeps it factual but not robotic.
+        config_kwargs = {"temperature": 0.2}
         if response_json:
-            config = genai_types.GenerateContentConfig(response_mime_type="application/json")
+            config_kwargs["response_mime_type"] = "application/json"
+        config = genai_types.GenerateContentConfig(**config_kwargs)
 
         log.info("Calling Gemini 2.5 Flash for review...")
         response = await _gemini_generate([video_part, prompt], config=config)
@@ -631,9 +640,12 @@ async def _analyze_local_file_with_gemini(file_path: str, prompt: str = None, re
         if uploaded_file.state.name != "ACTIVE":
             return {"error": f"File processing failed. State: {uploaded_file.state.name}"}
 
-        config = None
+        # Low temperature reduces hallucinated copyright/IP matches (e.g. calling a
+        # generic character "SpongeBob"). 0.2 keeps it factual but not robotic.
+        config_kwargs = {"temperature": 0.2}
         if response_json:
-            config = genai_types.GenerateContentConfig(response_mime_type="application/json")
+            config_kwargs["response_mime_type"] = "application/json"
+        config = genai_types.GenerateContentConfig(**config_kwargs)
 
         response = await _gemini_generate([uploaded_file, prompt], config=config)
         raw_text = response.text.strip()
