@@ -163,11 +163,12 @@ LEGAL COMPLIANCE CHECKS (v1.2 Checklist):
 17. Music — If you hear music, give a soft reminder to confirm it's from TikTok/IG library or approved royalty-free source. NEVER flag music as a risk.
 18. Ad Disclosure — Remind creators to include at least one ad-disclosure hashtag (#ManusAd, #ManusPartner, #Ad, #Sponsored) in their caption when posting. Generic tags like #Manus alone are NOT enough. NEVER suggest putting hashtags on the video itself. NEVER flag as a risk.
 
-MANUS PLUG & BRAND PRESENCE CHECKS (a weak or missing plug is a potential rejection — verdict COACH ATTENTION NEEDED):
-1. Clear Manus Plug — Every video must clearly feature Manus. There should be an actual demonstration of the creator USING Manus (the interface, a real task, a workflow), not just a passing mention. (HIGH RISK if absent)
-2. Manus Interface/Logo Visibility — The Manus interface, website, or logo should be clearly on screen for at least 4 seconds total. Flag if it appears only briefly (e.g. a 1-2 second flash). (HIGH RISK if under ~4s)
-3. End CTA — The video should end with a call-to-action that ties back to Manus, e.g. "I made this with Manus — comment 'PROMPT' and I'll send you the exact one" or "comment 'WEBSITE' for the build". Flag if there's no closing CTA. (MEDIUM RISK if missing)
-4. Low-Effort Plug — Flag low-effort plugs as a potential rejection for the coach: e.g. just a "made with Manus" text card on screen for ~2 seconds with no real demo of how Manus was used. These should be flagged [HIGH] and routed to COACH ATTENTION NEEDED.
+MANUS PLUG & BRAND PRESENCE CHECKS (a weak or missing plug is a potential rejection — verdict COACH ATTENTION NEEDED). Report these in the "manus_plug_paragraph" field. The four EDIT-REQUIRED cases below must each be flagged [HIGH] when present:
+1. Clear Manus Mention — Manus must be clearly mentioned in the video, spoken or as on-screen text. EDIT REQUIRED if there is NO in-video mention of Manus. (HIGH RISK)
+2. Manus Logo Present — A Manus logo should appear (a small/tiny logo at the bottom is acceptable). EDIT REQUIRED if there is NO Manus logo anywhere. (HIGH RISK)
+3. Logo on Interface — If the Manus interface is shown but there is NO Manus logo on screen, EDIT REQUIRED — tell them to add a logo. (HIGH RISK)
+4. CTA Present — The video should end with a clear CTA that ties back to Manus, e.g. "comment 'Manus' for the tool" or "comment 'PROMPT' and I'll send you the exact one". EDIT REQUIRED if no CTA is present. (HIGH RISK)
+Also: the Manus interface/website/logo should ideally be on screen for at least ~4 seconds total — note it if it only flashes briefly. A pure low-effort plug (e.g. just a 2-second "made with Manus" text card with no real demo) is [HIGH] and routes to COACH ATTENTION NEEDED.
 
 UGC FUNDAMENTALS CHECKS:
 1. Safe Zones — Critical text/face in bottom 350px (caption area) or top 250px (UI overlay)?
@@ -189,7 +190,8 @@ Return ONLY a valid JSON object (no markdown, no code fences) with this exact st
   "language_detected": "English",
   "script_summary": "2-3 sentence English summary of what the creator says and shows. If non-English, this serves as the translation for coaches.",
   "legal_paragraph": "Write a SHORT conversational paragraph (3-5 sentences max) summarizing the legal compliance findings. If AUTO-REJECT keywords were found, lead with them clearly using [AUTO-REJECT] and the exact phrase. Then naturally weave in any other flags — mention the specific issue, the risk level in brackets like [HIGH] or [MEDIUM], and the timestamp if applicable. If there are no flags, say so briefly. Always end with the music soft reminder (if music was detected) and the ad-disclosure hashtag reminder as natural sentences. Example tone for clean video: 'No major legal flags here! No income guarantees, absolute claims, or copyrighted content spotted. One soft note — at 0:15 there's a time-saved claim without visible proof [MEDIUM], so your coach might want to verify that. I hear some background music, so just confirm it's from a licensed source. And remember to pop an ad-disclosure hashtag like #ManusAd in your caption when posting!'",
-  "content_paragraph": "Write a SHORT conversational paragraph (4-6 sentences max) summarizing the UGC fundamentals AND the Manus plug quality. Cover safe zones, lighting/audio, the hook (mention which of the 12 categories it fits and whether it's strong or could be improved — suggest a specific alternative if weak), and pacing. Then ALWAYS address the Manus plug: is there a clear demo of the creator using Manus, is the Manus interface/website/logo on screen for at least ~4 seconds, and does the video end with a Manus CTA? If the plug is weak, missing, or low-effort (e.g. just a 2-second 'made with Manus' text card with no real demo), flag it as [HIGH] and note it needs coach attention. Be constructive and specific. Example tone: 'Lighting and audio are solid and safe zones look good for IG and TikTok. Your hook falls into the Demo/How-To category — decent, but try opening with \"I built an entire website in 30 seconds\" for more instant curiosity. Pacing is smooth. On the Manus side, your plug is a bit light [HIGH] — the interface only flashes for about 1 second and there's no clear demo of how you used it, so a coach should take a look. Try showing the Manus workspace for at least 4 seconds and end with a CTA like \"comment PROMPT and I'll send you the exact one.\"'",
+  "content_paragraph": "Write a SHORT conversational paragraph (3-5 sentences max) summarizing the UGC fundamentals ONLY. Cover safe zones, lighting/audio, the hook (mention which of the 12 categories it fits and whether it's strong or could be improved — suggest a specific alternative if weak), and pacing. Do NOT cover the Manus plug here — that goes in its own field. Be constructive and specific. Example tone: 'Lighting and audio are solid — your face is well-lit and the sound is crisp. Safe zones look good for IG and TikTok. Your hook falls into the Demo/How-To category and it's decent, but it could be punchier — try opening with something like \"I built an entire website in 30 seconds\" to create more instant curiosity. Pacing is smooth throughout with no dead air.'",
+  "manus_plug_paragraph": "Write a SHORT conversational paragraph (2-4 sentences max) evaluating ONLY the Manus plug. Check these four things explicitly and call out any that need an edit as [HIGH]: (1) Is Manus clearly mentioned in the video (spoken or on-screen text)? Flag if there is no in-video mention. (2) Is the Manus logo present? A tiny logo at the bottom is fine, but flag if there is NO Manus logo at all. (3) If the Manus interface is shown but there is no Manus logo on screen, flag that the logo should be added. (4) Is there a clear CTA, e.g. 'comment Manus for the tool/prompt'? Flag if no CTA is present. If everything is good, say so briefly. Example tone: 'Your Manus plug is clear — you mention Manus at 0:03 and the interface is on screen for a good 6 seconds. One edit though [HIGH]: I don't see a Manus logo anywhere, so add at least a small one (bottom corner is fine). Also, there's no closing CTA — try ending with \"comment MANUS and I'll send you the tool.\"'",
   "quick_verdict": "LOOKS GOOD / NEEDS REVIEW / COACH ATTENTION NEEDED / AUTO-REJECT / NOT MANUS CONTENT",
   "overall_summary": "One final sentence. Always include: 'A human coach will review this shortly for final approval.' If AUTO-REJECT, start with: 'This video contains auto-reject language and must be reviewed by a coach before any use.' then end with: 'If you think this is a mistake, please tag your coach for a manual review.'"
 }
@@ -201,7 +203,7 @@ VERDICT ROUTING:
 - No flags at all → "quick_verdict" = "LOOKS GOOD".
 
 CRITICAL RULES FOR THE PARAGRAPHS:
-- Keep the legal paragraph SHORT (3-5 sentences) and the content paragraph concise (4-6 sentences). Do NOT write essays.
+- Keep paragraphs SHORT: legal 3-5 sentences, content 3-5 sentences, Manus plug 2-4 sentences. Do NOT write essays.
 - Be conversational and friendly, like a peer creator giving feedback in a chat.
 - Naturally mention ALL relevant checks within the paragraph flow — don't use headers, bullet points, or field labels.
 - If something is fine, you can group multiple "all good" items in one sentence (e.g., "No income guarantees, copyrighted content, or fake testimonials spotted.").
@@ -794,15 +796,20 @@ def build_review_message(review: dict, creator: str = None) -> tuple[str | None,
         "\n⚠️ *I'm just an AI flagger — a real coach will make the final call.*"
     )
 
-    # Layer 1 — Legal paragraph
+    # Layer 1 — Compliance paragraph
     legal = review.get("legal_paragraph", "")
     if legal:
-        parts.append(f"\n🛡️ **Legal Check:**\n{legal}")
+        parts.append(f"\n🛡️ **Compliance Check:**\n{legal}")
 
     # Layer 2 — Content paragraph
     content = review.get("content_paragraph", "")
     if content:
         parts.append(f"\n🎬 **Content Review:**\n{content}")
+
+    # Layer 3 — Manus plug paragraph
+    plug = review.get("manus_plug_paragraph", "")
+    if plug:
+        parts.append(f"\n🔌 **Manus Plug:**\n{plug}")
 
     # Overall summary
     summary = review.get("overall_summary", "A human coach will review this shortly for final approval.")
