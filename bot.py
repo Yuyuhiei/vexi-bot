@@ -9,10 +9,12 @@ Triggers:
 """
 
 import os
+import io
 import json
 import re
 import shutil
 import tempfile
+import time
 import asyncio
 import logging
 from pathlib import Path
@@ -64,31 +66,76 @@ log = logging.getLogger("vexi")
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ---------------------------------------------------------------------------
+# Manus knowledge base — injected into review + study + revise prompts so the
+# model has ground truth about the product it's evaluating.
+# ---------------------------------------------------------------------------
+MANUS_KNOWLEDGE = """
+MANUS GROUND TRUTH (use this to verify what you actually see on screen):
+
+- Product: Manus (manus.im) — a general-purpose AI agent that autonomously
+  executes multi-step tasks in a cloud workspace. It plans, uses tools, and
+  produces artifacts end-to-end without step-by-step user guidance.
+
+- Core capabilities creators typically demo:
+  • Autonomous web research (opens sites, reads pages, compiles reports)
+  • Browser automation (fills forms, navigates flows, scrapes data)
+  • Document, spreadsheet, and slide generation (PDF, DOCX, XLSX, PPTX)
+  • Website and landing-page builds (HTML/CSS/JS, sometimes deployed live)
+  • App / prototype building (small full-stack apps, dashboards)
+  • Image generation and editing
+  • Data analysis, cleaning, and visualization
+  • Long-running background tasks the user can check on later
+
+- UI signals (any of these strongly indicate a Manus video):
+  • Left sidebar listing task threads / previous runs
+  • A live task-execution panel showing a virtual browser, terminal, or
+    file tree while the agent works
+  • A chat input where the user gives Manus a high-level instruction
+  • The word "Manus" as wordmark, tab title, or in the URL bar (manus.im)
+  • Dark blue / near-black palette; clean minimal chrome
+
+- Spoken / text signals: "manus.im", "Manus", "the Manus agent",
+  "I asked Manus to...", "Manus built this for me", "let Manus do it"
+
+- Correct spellings ONLY: "Manus" and "manus.im".
+  Wrong (flag as [HIGH] misspelling): Manis, Mannus, Maus, Mauns, manis.im,
+  mannus.im, and any other variant. The domain is manus.im — never .com/.io
+  unless the creator is explicitly referencing a different product.
+"""
+
+# ---------------------------------------------------------------------------
 # The Core AI Prompt — Compact Conversational Output
 # ---------------------------------------------------------------------------
-REVIEW_PROMPT = r"""
+REVIEW_PROMPT = MANUS_KNOWLEDGE + r"""
 You are Vexi, a friendly, non-authoritative AI assistant helping human coaches review UGC videos for Manus. Your job is to flag potential issues for the human coach to make the final decision. You are NOT the approver — you are a helpful first-pass flagger.
 
 ═══════════════════════════════════════
-LAYER 0: MANUS RELEVANCE GATE (CHECK THIS FIRST)
+LAYER 0: MANUS RELEVANCE — CHAIN OF THOUGHT (RUN BEFORE DECIDING)
 ═══════════════════════════════════════
-Before doing ANY review, determine if this video is related to Manus (the AI agent product).
+Do NOT decide manus_relevant until you have walked through these three steps. Bias STRONGLY toward relevant — if ANY signal exists at Step 1, this is a Manus video.
 
-A Manus-related video includes ANY of the following:
-- Mentions, shows, or demonstrates Manus (the AI tool/product)
-- Is a UGC-style video that could be promoting or reviewing Manus
-- Shows someone using an AI tool that could be Manus
-- Contains Manus branding, logo, website, or app
-- Is a talking-head, tutorial, reaction, or testimonial that references Manus
-- Is clearly a creator's UGC content intended for the Manus Creator Program
+STEP 1 — First Manus signal. Scan the entire video for the FIRST moment any of the following appears, and note the timestamp and signal type:
+  (a) The Manus wordmark or logo (top-left, footer, watermark, or anywhere on screen — even tiny)
+  (b) Spoken mention of "Manus", "manus.im", "Manus agent", or a common misspelling ("Manis", "Mannus", etc.)
+  (c) On-screen text or captions referencing Manus or manus.im
+  (d) The Manus web app UI (sidebar of task threads, task-execution panel with live browser/terminal, chat prompt input, dark blue/black palette matching MANUS GROUND TRUTH)
+  (e) A URL bar or browser tab showing manus.im
+If NONE of (a)–(e) appears anywhere, note "no Manus signal found".
 
-If the video is NOT related to Manus at all (e.g., random memes, personal vlogs, unrelated content):
-- Set "manus_relevant" to false
+STEP 2 — Manus scene description. If Step 1 found a signal, describe in one sentence WHAT is happening in the Manus portion: what task is the creator giving the agent? What is the agent producing? Is the UI visible?
+
+STEP 3 — Manus features shown. Enumerate every Manus capability visible in the video (research report, browser automation, doc/slide creation, website build, data work, image generation, etc.). Refer to MANUS GROUND TRUTH.
+
+NOW decide "manus_relevant":
+- If Step 1 found ANY signal (even a 1-second logo flash, or a single spoken mention), set "manus_relevant": true and proceed with the full review.
+- Only set "manus_relevant": false if Steps 1, 2, and 3 are all empty — i.e. the video contains zero Manus visuals, zero mentions, and zero features. When in doubt, choose TRUE. A missed Manus video wastes a coach's time; a false-flag "NOT MANUS" wastes the creator's.
+
+If "manus_relevant" is false:
 - Set "quick_verdict" to "NOT MANUS CONTENT"
-- Skip all other analysis. Set "legal_paragraph" and "content_paragraph" to empty strings.
-- In "overall_summary" write: "This video does not appear to be related to Manus. Please submit a Manus-related UGC video for review."
+- Set "legal_paragraph" and "content_paragraph" and "manus_plug_paragraph" to empty strings
+- In "overall_summary" write: "I couldn't find any Manus mention, logo, UI, or feature in this video. If you think I'm wrong, tag your coach for a manual review."
 
-If the video IS related to Manus, set "manus_relevant" to true and proceed.
+Include your Step 1/2/3 findings implicitly when writing manus_plug_paragraph — the coach benefits from seeing the exact timestamp of the first Manus signal.
 
 ═══════════════════════════════════════
 LAYER 0.5: MONEY & INCOME CLAIM SCAN (v1.3 — RUN BEFORE ALL OTHER CHECKS)
@@ -147,7 +194,15 @@ LEGAL COMPLIANCE CHECKS (v1.2 Checklist):
    - Do NOT name-match. A generic yellow square character is NOT automatically SpongeBob; generic round candy is NOT automatically M&M's; a muscular bald man is NOT automatically David Goggins. Original, generic, or merely similar-looking characters are FINE and must NOT be flagged.
    - If something only RESEMBLES a known IP but you are not confident, do NOT assert the IP. Either say nothing, or note it softly as [MEDIUM] "this generic character may read as similar to <X> — worth a human glance" without claiming it IS that IP.
    - When uncertain, default to NOT flagging. A false copyright flag is worse than a missed borderline one, because a coach reviews everything anyway.
-   EXCEPTIONS (do NOT flag): a copyrighted character appearing incidentally in the background or on a desktop screen for under 2 seconds; a creator simply wearing a branded jersey or shirt (e.g. an Adidas tee) as everyday clothing. (HIGH RISK)
+   EXCEPTIONS (do NOT flag): a copyrighted character appearing incidentally in the background or on a desktop screen for under 2 seconds; a creator simply wearing a branded jersey or shirt (e.g. an Adidas tee) as everyday clothing.
+   NEVER FLAG these categories — they are not creator-published IP use:
+   - Brand names inside a browser tab, URL bar, address bar, or app UI chrome (e.g. a Chrome tab reading "nike.com" is not a Nike endorsement — it's a URL)
+   - Brand names or logos appearing INSIDE the Manus agent's browser or task-execution panel — Manus is USING the site to complete a task, that's not brand placement by the creator
+   - Logos smaller than roughly 5% of the frame that sit incidentally in the background (a laptop sticker, a distant sign)
+   - Generic English words that happen to match brand names (e.g. "Apple" as fruit, "Nike" as the Greek goddess, "Amazon" as the river)
+   - Product names visible only on a laptop or phone screen that is displaying a normal website in the ordinary course of the video
+   - Search-engine result pages listing many brand names as text — that's search UI, not endorsement
+   When in doubt, do not flag. (HIGH RISK)
 5. Fake Reviews or Testimonials — Actors scripting fake customer stories, fake "first-time" reactions. (HIGH RISK)
 6. Exaggerated or Unproven Claims — Unprovable numerical claims beyond income (e.g., "10x your revenue"). Personal honest experiences without guarantees are fine. (MEDIUM RISK)
 7. People Without Permission — Identifiable bystanders, friends, or children without release. (MEDIUM RISK)
@@ -219,10 +274,10 @@ CRITICAL RULES FOR THE PARAGRAPHS:
 # ---------------------------------------------------------------------------
 # Study Mode Prompt — Format Analysis + Manus Adaptation Brief
 # ---------------------------------------------------------------------------
-STUDY_PROMPT = r"""
+STUDY_PROMPT = MANUS_KNOWLEDGE + r"""
 You are Vexi in "Study Mode" — a creative strategist helping the Manus UGC team learn from high-performing content in any niche or brand.
 
-Your job: watch this video, break down WHY it works, then write a concise Manus adaptation brief.
+Your job: watch this video, break down WHY it works, write a concise Manus adaptation brief, AND deliver a fully copyable script the creator can record as a Manus UGC video.
 
 ═══════════════════════════════════════
 WHAT TO ANALYZE
@@ -241,9 +296,18 @@ PART 1 — FORMAT ANALYSIS:
 
 PART 2 — MANUS ADAPTATION:
 - How to port this exact format to a Manus UGC video, beat by beat
-- Which Manus features fill each narrative role (agentic tasks, browser automation, research, document generation, etc.)
+- Which Manus features fill each narrative role (refer to MANUS GROUND TRUTH — agentic tasks, browser automation, research, doc/slide generation, website builds, image generation, etc.)
 - A numbered shot/beat outline a creator can follow (5-7 beats max)
 - What NOT to copy — flag anything that would fail a Vexi compliance check (income claims, absolute promises, competitor mentions, fake testimonials)
+
+PART 3 — FULL COPYABLE SCRIPT:
+Write a ready-to-record script the creator can paste and shoot. It must be:
+- 25-60 seconds of runtime total
+- Structured with beat markers on their own lines: [HOOK 0-3s], [BEAT 1 3-8s], [BEAT 2 ...], ..., [CTA]
+- Every beat has: spoken line(s) in plain prose, then a "(visual: ...)" cue in parentheses on the SAME line or the next line
+- Tailored to a Manus feature that fits the source video's format (name the specific Manus capability)
+- Compliance-safe: NO income claims, NO absolute claims like "100%" or "replaces humans", NO competitor brand mentions or logos, NO fake testimonials. Include a soft ad-disclosure reminder in the CTA area (e.g. "and tag #ManusAd").
+- End with a clear CTA that ties back to Manus (e.g. "comment MANUS and I'll send the exact prompt")
 
 ═══════════════════════════════════════
 OUTPUT FORMAT
@@ -257,13 +321,16 @@ Return ONLY a valid JSON object (no markdown, no code fences):
   "manus_adaptation": "2-3 sentences max. What to keep, what to swap, which Manus features fill each beat.",
   "suggested_outline": "Numbered plain-text outline, 5-7 beats, each on its own line. No markdown symbols.",
   "copy_guardrails": "1-2 sentences. Flag compliance risks or confirm it's clean.",
-  "adaptation_difficulty": "EASY / MODERATE / COMPLEX"
+  "adaptation_difficulty": "EASY / MODERATE / COMPLEX",
+  "full_script": "Full ready-to-record script with beat markers on their own lines. Example shape:\n[HOOK 0-3s] Spoken line here. (visual: creator on camera, quick zoom in)\n[BEAT 1 3-8s] Spoken line. (visual: screen recording of Manus opening a task)\n[BEAT 2 8-15s] ...\n[CTA] Comment MANUS and I'll send the prompt. #ManusAd"
 }
 
 CRITICAL RULES:
-- Be concise. Every field has a strict length cap — do not exceed it.
-- NEVER use markdown formatting inside string values — plain text only.
+- Be concise for the analysis fields; every field except full_script has a strict length cap.
+- full_script may be up to ~1500 characters — enough for 25-60 seconds of dialogue plus visual cues.
+- NEVER use markdown formatting inside string values — plain text only. No bold, no headers, no bullets.
 - If the video has no audio or is very short, work with what is visible.
+- The full_script must be about Manus (use MANUS GROUND TRUTH), not the source video's brand.
 """
 
 # ---------------------------------------------------------------------------
@@ -272,6 +339,11 @@ CRITICAL RULES:
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".webm", ".mkv", ".m4v"}
 GDRIVE_PATTERN = re.compile(r"https?://drive\.google\.com/file/d/([a-zA-Z0-9_-]+)")
 GDRIVE_OPEN_PATTERN = re.compile(r"https?://drive\.google\.com/open\?id=([a-zA-Z0-9_-]+)")
+GDRIVE_UC_PATTERN = re.compile(r"https?://drive\.google\.com/uc\?[^ ]*id=([a-zA-Z0-9_-]+)")
+GDRIVE_USERCONTENT_PATTERN = re.compile(r"https?://drive\.usercontent\.google\.com/download\?[^ ]*id=([a-zA-Z0-9_-]+)")
+# On the >25MB interstitial page, Drive returns a form with hidden confirm/uuid
+# inputs. Parse those and re-request to get the actual bytes.
+GDRIVE_HIDDEN_INPUT_PATTERN = re.compile(r'name="([^"]+)"\s+value="([^"]+)"')
 YOUTUBE_PATTERN = re.compile(r"(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/)([a-zA-Z0-9_-]+)")
 DISCORD_CDN_PATTERN = re.compile(r"https?://cdn\.discordapp\.com/attachments/")
 INSTAGRAM_PATTERN = re.compile(r"https?://(www\.)?instagram\.com/(reel|p|tv)/([a-zA-Z0-9_-]+)")
@@ -486,15 +558,108 @@ def _parse_json_with_repair(text: str) -> dict | None:
     return None
 
 
+def extract_gdrive_id(url: str) -> str | None:
+    """Return the Drive file ID from any recognized Drive URL shape, or None."""
+    for pat in (GDRIVE_PATTERN, GDRIVE_OPEN_PATTERN, GDRIVE_UC_PATTERN, GDRIVE_USERCONTENT_PATTERN):
+        m = pat.search(url)
+        if m:
+            return m.group(1)
+    return None
+
+
+def is_gdrive_url(url: str) -> bool:
+    return extract_gdrive_id(url) is not None
+
+
 def convert_gdrive_to_direct(url: str) -> str:
-    """Convert a Google Drive sharing URL to a direct download URL."""
-    m = GDRIVE_PATTERN.search(url)
-    if not m:
-        m = GDRIVE_OPEN_PATTERN.search(url)
-    if m:
-        file_id = m.group(1)
-        return f"https://drive.google.com/uc?export=download&confirm=t&id={file_id}"
+    """Convert a Google Drive sharing URL to a direct download URL.
+
+    Uses the drive.usercontent.google.com endpoint, which bypasses the classic
+    /uc virus-scan interstitial for most public files. Files >~100MB still
+    return an HTML confirmation page — download_gdrive() handles that case.
+    """
+    file_id = extract_gdrive_id(url)
+    if file_id:
+        return f"https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=t"
     return url
+
+
+async def download_gdrive(url_or_id: str, session: aiohttp.ClientSession) -> tuple[str | None, str | None]:
+    """Fetch a public Google Drive video to a local temp file.
+
+    Handles the >25MB virus-scan interstitial by parsing the returned HTML for
+    the confirm/uuid tokens and re-requesting with those params. Returns
+    (file_path, error). File is capped at 100MB to match the rest of the pipeline.
+    """
+    file_id = extract_gdrive_id(url_or_id) or url_or_id
+    base = "https://drive.usercontent.google.com/download"
+    params: dict = {"id": file_id, "export": "download", "confirm": "t"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    tmp_path: str | None = None
+
+    try:
+        for attempt in range(2):
+            async with session.get(
+                base,
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=300, connect=30),
+                headers=headers,
+                allow_redirects=True,
+            ) as resp:
+                if resp.status != 200:
+                    return None, f"Drive HTTP {resp.status}"
+                content_type = resp.headers.get("Content-Type", "")
+
+                if "text/html" in content_type.lower():
+                    # Either the interstitial (parse confirm token & retry) or a
+                    # sign-in page (private file — surface a clean error).
+                    body = await resp.text(errors="ignore")
+                    lowered = body.lower()
+                    if "sign in" in lowered and "google" in lowered and attempt == 0:
+                        return None, "This Drive file isn't public. Set sharing to 'Anyone with the link' and try again."
+                    if attempt == 1:
+                        return None, "Google Drive returned an HTML page instead of the file — check that the link is public."
+                    # Extract hidden form fields to resubmit
+                    extracted = dict(GDRIVE_HIDDEN_INPUT_PATTERN.findall(body))
+                    if not extracted:
+                        return None, "Couldn't parse Drive confirmation page. Make sure the file is public."
+                    for key in ("id", "export", "confirm", "uuid", "at"):
+                        if key in extracted:
+                            params[key] = extracted[key]
+                    # Loop back and retry with new params
+                    continue
+
+                # Real bytes — pick extension from content-type
+                ext = ".mp4"
+                if "quicktime" in content_type:
+                    ext = ".mov"
+                elif "webm" in content_type:
+                    ext = ".webm"
+                elif "matroska" in content_type or "x-matroska" in content_type:
+                    ext = ".mkv"
+
+                tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False, prefix="vexi_gdrive_")
+                total = 0
+                async for chunk in resp.content.iter_chunked(1024 * 256):
+                    tmp.write(chunk)
+                    total += len(chunk)
+                    if total > 100 * 1024 * 1024:
+                        tmp.close()
+                        os.unlink(tmp.name)
+                        return None, "Drive file exceeds 100MB limit."
+                tmp.close()
+                tmp_path = tmp.name
+                log.info(f"Downloaded {total / 1024 / 1024:.1f}MB from Drive to {tmp_path}")
+                return tmp_path, None
+
+        return None, "Drive download failed after retry."
+    except Exception as e:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+        return None, f"Drive download error: {e}"
 
 
 def extract_video_source(message: discord.Message) -> str | None:
@@ -505,12 +670,17 @@ def extract_video_source(message: discord.Message) -> str | None:
             return att.url
 
     text = message.content or ""
+    file_id = None
     m = GDRIVE_PATTERN.search(text)
-    if not m:
-        m = GDRIVE_OPEN_PATTERN.search(text)
     if m:
         file_id = m.group(1)
-        return f"https://drive.google.com/uc?export=download&confirm=t&id={file_id}"
+    else:
+        m = GDRIVE_OPEN_PATTERN.search(text)
+        if m:
+            file_id = m.group(1)
+    if file_id:
+        # Return the original-shape URL so downstream helpers can detect + route.
+        return f"https://drive.google.com/file/d/{file_id}/view"
 
     m = YOUTUBE_PATTERN.search(text)
     if m:
@@ -685,6 +855,15 @@ async def analyze_video_with_gemini_upload(video_url: str, session: aiohttp.Clie
     raw_text = ""
     video_path = None
     try:
+        # Drive links: use the dedicated helper that handles the >25MB interstitial.
+        if is_gdrive_url(video_url):
+            gdrive_path, gdrive_err = await download_gdrive(video_url, session)
+            if not gdrive_path:
+                return {"error": gdrive_err or "Drive download failed."}
+            video_path = gdrive_path
+            log.info(f"Drive download complete → {video_path}")
+            return await _analyze_local_file_with_gemini(video_path, prompt, response_json=response_json)
+
         log.info(f"Fallback: Downloading video to upload to Gemini: {video_url[:120]}...")
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         async with session.get(
@@ -838,8 +1017,40 @@ def build_review_message(review: dict, creator: str = None) -> tuple[str | None,
     return (None, [embed])
 
 
-def build_study_message(study: dict, source_label: str = "Video") -> tuple[str | None, list[discord.Embed]]:
-    """Convert a Gemini Study Mode JSON result into a Discord embed."""
+# In-memory cache of study scripts keyed by the Discord message ID Vexi posted
+# them in. Used by /revise (context-menu command) to fetch the original script
+# without re-parsing the embed. Entries are evicted lazily on read.
+_recent_scripts: dict[int, tuple[str, float]] = {}
+SCRIPT_CACHE_TTL_SEC = 24 * 3600
+
+
+def _cache_script(message_id: int, script: str) -> None:
+    _recent_scripts[message_id] = (script, time.time())
+    # Evict anything older than TTL to keep the dict bounded.
+    now = time.time()
+    stale = [mid for mid, (_, ts) in _recent_scripts.items() if now - ts > SCRIPT_CACHE_TTL_SEC]
+    for mid in stale:
+        _recent_scripts.pop(mid, None)
+
+
+def _get_cached_script(message_id: int) -> str | None:
+    entry = _recent_scripts.get(message_id)
+    if not entry:
+        return None
+    script, ts = entry
+    if time.time() - ts > SCRIPT_CACHE_TTL_SEC:
+        _recent_scripts.pop(message_id, None)
+        return None
+    return script
+
+
+def build_study_message(study: dict, source_label: str = "Video") -> tuple[str | None, list[discord.Embed], discord.File | None, str | None]:
+    """Convert a Gemini Study Mode JSON result into (content, embeds, attachment, script).
+
+    The optional discord.File is a `script.txt` attachment used when the script
+    is too long for the third embed. The final str is the raw script text
+    (returned so the caller can cache it against the posted message ID for /revise).
+    """
     if "error" in study:
         err_msg = study["error"]
         is_download_fail = err_msg.startswith("DOWNLOAD_FAILED:")
@@ -863,7 +1074,7 @@ def build_study_message(study: dict, source_label: str = "Video") -> tuple[str |
             description=desc,
             color=discord.Color.red(),
         )
-        return (None, [err_embed])
+        return (None, [err_embed], None, None)
 
     difficulty = study.get("adaptation_difficulty", "MODERATE")
     diff_color = {
@@ -893,7 +1104,7 @@ def build_study_message(study: dict, source_label: str = "Video") -> tuple[str |
         description="\n".join(p1),
         color=diff_color,
     )
-    embed1.set_footer(text="Vexi Study Mode • 1 of 2 — Format Analysis")
+    embed1.set_footer(text="Vexi Study Mode • 1 of 3 — Format Analysis")
 
     # --- Embed 2: Manus Adaptation Brief ---
     p2 = []
@@ -915,9 +1126,44 @@ def build_study_message(study: dict, source_label: str = "Video") -> tuple[str |
         description="\n".join(p2),
         color=diff_color,
     )
-    embed2.set_footer(text="Vexi Study Mode • 2 of 2 — Manus Adaptation Brief • v1.2")
+    embed2.set_footer(text="Vexi Study Mode • 2 of 3 — Manus Adaptation Brief")
 
-    return (None, [embed1, embed2])
+    # --- Embed 3: Copyable Script (or .txt attachment if too long) ---
+    embeds: list[discord.Embed] = [embed1, embed2]
+    script_file: discord.File | None = None
+    full_script = (study.get("full_script") or "").strip()
+
+    if full_script:
+        # Discord embed description max is 4096 chars. Add 8 for the ``` fences
+        # and a safety margin — if the wrapped block exceeds 3900, attach as file.
+        wrapped = f"```\n{full_script}\n```"
+        if len(wrapped) <= 3900:
+            embed3 = discord.Embed(
+                title="📝 Copyable Script — Manus UGC",
+                description=(
+                    f"Ready to record. Copy the block below.\n{wrapped}\n"
+                    "*Right-click this message → Apps → 'Revise this script' to iterate.*"
+                ),
+                color=diff_color,
+            )
+            embed3.set_footer(text="Vexi Study Mode • 3 of 3 — Copyable Script • v1.3")
+            embeds.append(embed3)
+        else:
+            # Too long for a single embed — attach as file, keep a short embed pointer.
+            script_bytes = full_script.encode("utf-8")
+            script_file = discord.File(io.BytesIO(script_bytes), filename="manus_script.txt")
+            embed3 = discord.Embed(
+                title="📝 Copyable Script — Manus UGC",
+                description=(
+                    "Script was long — attached as `manus_script.txt` (open it, copy the text).\n"
+                    "*Right-click this message → Apps → 'Revise this script' to iterate.*"
+                ),
+                color=diff_color,
+            )
+            embed3.set_footer(text="Vexi Study Mode • 3 of 3 — Copyable Script • v1.3")
+            embeds.append(embed3)
+
+    return (None, embeds, script_file, full_script or None)
 
 
 # ---------------------------------------------------------------------------
@@ -957,80 +1203,84 @@ async def on_ready():
 
 
 # ---------------------------------------------------------------------------
-# Slash Command: /vexi
+# Per-user FIFO review queue
 # ---------------------------------------------------------------------------
-@bot.tree.command(name="vexi", description="Submit a video for Vexi AI review")
-@app_commands.describe(
-    video="Attach a video file directly",
-    video_url="Or paste a direct video URL (Google Drive, YouTube, or direct link)",
-    coach="Tag a coach to notify them about this review",
-)
-async def vexi_command(
-    interaction: discord.Interaction,
-    video: discord.Attachment = None,
-    video_url: str = None,
-    coach: discord.Member = None,
-):
-    """Handle /vexi slash command."""
-    # DEFER IMMEDIATELY
+# Videos submitted via /vexi are processed one at a time PER USER. Different
+# users run in parallel; a single user's videos run serially so no one can
+# monopolize Gemini quota. Queue and worker state live in-memory only.
+_user_queues: dict[int, asyncio.Queue] = {}
+_user_workers: dict[int, asyncio.Task] = {}
+_queue_lock = asyncio.Lock()
+
+
+async def enqueue_review(user_id: int, job: dict) -> None:
+    async with _queue_lock:
+        q = _user_queues.setdefault(user_id, asyncio.Queue())
+        await q.put(job)
+        w = _user_workers.get(user_id)
+        if w is None or w.done():
+            _user_workers[user_id] = asyncio.create_task(_user_worker(user_id))
+
+
+async def _user_worker(user_id: int) -> None:
+    q = _user_queues.get(user_id)
+    if q is None:
+        return
     try:
-        await interaction.response.defer(thinking=True)
-    except (discord.errors.NotFound, discord.errors.HTTPException) as e:
-        log.warning(f"Interaction defer failed: {e}")
-        return
+        while True:
+            try:
+                job = await asyncio.wait_for(q.get(), timeout=5.0)
+            except asyncio.TimeoutError:
+                # Recheck under lock — a job may have been enqueued mid-drain.
+                async with _queue_lock:
+                    if q.empty():
+                        _user_queues.pop(user_id, None)
+                        _user_workers.pop(user_id, None)
+                        return
+                continue
+            try:
+                await process_single_review(**job)
+            except Exception:
+                log.exception(f"review job failed for user {user_id}")
+            finally:
+                q.task_done()
+    except Exception:
+        log.exception(f"user worker crashed for user {user_id}")
+        async with _queue_lock:
+            _user_workers.pop(user_id, None)
 
-    # Validate input
-    source_url = None
-    original_url = None
 
-    if video is not None:
-        suffix = Path(video.filename).suffix.lower()
-        if suffix not in VIDEO_EXTENSIONS:
-            await interaction.followup.send(
-                f"❌ That doesn't look like a video file (`{video.filename}`).\n"
-                f"Supported formats: {', '.join(VIDEO_EXTENSIONS)}",
-            )
-            return
-        source_url = video.url
-        original_url = video.url
-    elif video_url:
-        original_url = video_url
-        source_url = convert_gdrive_to_direct(video_url)
-    else:
-        await interaction.followup.send(
-            "👋 Hey! Please attach a video file or provide a video URL.\n\n"
-            "**Option 1:** `/vexi video:` → click to attach a file\n"
-            "**Option 2:** `/vexi video_url:https://drive.google.com/file/d/abc123/view`\n"
-            "**Option 3:** `/vexi video: coach:@CoachName` → notify a coach",
-        )
-        return
+async def process_single_review(
+    submitter: discord.User | discord.Member,
+    coach: discord.Member | None,
+    channel: discord.abc.Messageable,
+    master_msg: discord.Message,
+    attachment: discord.Attachment | None,
+    url: str | None,
+    display_url: str | None,
+    index: int,
+    total: int,
+) -> None:
+    """Runs one video through the full review pipeline. Posts the video (or its
+    URL), a live progress bar, and the final review embed as replies to master_msg.
+    Called by the per-user worker — this is where the actual Gemini call happens."""
+    label = f"Video {index} of {total}" if total > 1 else "Your video"
+    header = f"🎬 **{label}** — from {submitter.mention}"
 
-    # Post the video visibly in the channel
-    coach_ping = ""
-    if coach:
-        coach_ping = f"🏷️ {coach.mention} — "
-    intro_text = f"{coach_ping}🔍 **Vexi is reviewing a video from {interaction.user.mention}...** Hang tight!"
-
-    if video is not None:
+    # Post the video header (with re-attached file if we can)
+    video_msg: discord.Message
+    if attachment is not None:
         try:
-            video_file = await video.to_file()
-            visible_msg = await interaction.followup.send(
-                content=intro_text,
-                file=video_file,
-            )
+            video_file = await attachment.to_file()
+            video_msg = await channel.send(content=header, file=video_file, reference=master_msg)
         except Exception as e:
-            log.warning(f"Could not re-attach video: {e}")
-            visible_msg = await interaction.followup.send(content=intro_text)
-    elif video_url:
-        visible_msg = await interaction.followup.send(
-            content=f"{intro_text}\n🎬 Video: {original_url}",
-        )
+            log.warning(f"Could not re-attach video for video {index}: {e}")
+            video_msg = await channel.send(content=f"{header}\n(couldn't re-attach the file)", reference=master_msg)
     else:
-        visible_msg = await interaction.followup.send(content=intro_text)
+        video_msg = await channel.send(content=f"{header}\n🎬 Video: {display_url or url}", reference=master_msg)
 
-    # Progress indicator
-    progress_msg = await visible_msg.reply(
-        content="⏳ **Vexi is analyzing your video...**\n▁▁▁▁▁▁▁▁▁▁ Sending to AI..."
+    progress_msg = await video_msg.reply(
+        content=f"⏳ **Vexi is analyzing {label.lower()}...**\n▁▁▁▁▁▁▁▁▁▁ Sending to AI..."
     )
 
     progress_done = asyncio.Event()
@@ -1051,7 +1301,7 @@ async def vexi_command(
                 return
             try:
                 await progress_msg.edit(
-                    content=f"⏳ **Vexi is analyzing your video...**\n{bar} {status}"
+                    content=f"⏳ **Vexi is analyzing {label.lower()}...**\n{bar} {status}"
                 )
             except Exception:
                 return
@@ -1063,17 +1313,16 @@ async def vexi_command(
 
     progress_task = asyncio.create_task(update_progress())
 
-    # Analyze
-    filename = video.filename if video else ""
+    source_url = attachment.url if attachment is not None else (url or "")
+    filename = attachment.filename if attachment is not None else ""
     mime = guess_mime_type(source_url, filename)
 
     try:
-        # Discord CDN URLs are signed/temporary — Gemini can't fetch them directly.
-        # Skip straight to the upload fallback for Discord attachments.
         is_discord_cdn = bool(DISCORD_CDN_PATTERN.match(source_url))
+        is_gdrive = is_gdrive_url(source_url)
 
-        if is_discord_cdn:
-            log.info("Discord CDN URL detected — using upload fallback directly.")
+        if is_discord_cdn or is_gdrive:
+            log.info(f"{'Discord CDN' if is_discord_cdn else 'Drive'} URL (video {index}/{total}) — using upload path directly.")
             async with aiohttp.ClientSession() as session:
                 review = await analyze_video_with_gemini_upload(source_url, session)
         else:
@@ -1083,20 +1332,128 @@ async def vexi_command(
                 async with aiohttp.ClientSession() as session:
                     review = await analyze_video_with_gemini_upload(source_url, session)
 
-        # Stop progress
         progress_done.set()
         await progress_task
 
-        # Build compact review
-        content_text, embeds = build_review_message(review, creator=f"{interaction.user.mention}")
+        content_text, embeds = build_review_message(review, creator=f"{submitter.mention}")
 
-        await progress_msg.edit(content=content_text, embeds=embeds)
+        # Ping coach only on the FIRST video's review (so a batch of 5 doesn't
+        # spam @coach five times). Index 1 is the first video.
+        if coach and index == 1:
+            prefix = f"🏷️ {coach.mention} — "
+            content_text = (prefix + (content_text or "")).strip()
+
+        await progress_msg.edit(content=content_text or None, embeds=embeds)
     except Exception as e:
         progress_done.set()
-        await progress_task
-        log.error(f"Slash command error: {type(e).__name__}: {e}")
-        await progress_msg.edit(
-            content=f"❌ Something went wrong during the review. Please try again.\nError: {str(e)[:200]}"
+        try:
+            await progress_task
+        except Exception:
+            pass
+        log.error(f"process_single_review error (video {index}/{total}): {type(e).__name__}: {e}")
+        try:
+            await progress_msg.edit(
+                content=f"❌ Video {index}/{total} review failed. Error: {str(e)[:200]}"
+            )
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Slash Command: /vexi
+# ---------------------------------------------------------------------------
+@bot.tree.command(name="vexi", description="Submit up to 5 videos for Vexi AI review")
+@app_commands.describe(
+    video1="Attach a video file (required unless you use a URL)",
+    video2="Optional 2nd video file",
+    video3="Optional 3rd video file",
+    video4="Optional 4th video file",
+    video5="Optional 5th video file",
+    video_url1="Or paste a video URL (Google Drive, YouTube, or direct link)",
+    video_url2="Optional 2nd URL",
+    video_url3="Optional 3rd URL",
+    video_url4="Optional 4th URL",
+    video_url5="Optional 5th URL",
+    coach="Tag a coach to notify them about this batch",
+)
+async def vexi_command(
+    interaction: discord.Interaction,
+    video1: discord.Attachment = None,
+    video2: discord.Attachment = None,
+    video3: discord.Attachment = None,
+    video4: discord.Attachment = None,
+    video5: discord.Attachment = None,
+    video_url1: str = None,
+    video_url2: str = None,
+    video_url3: str = None,
+    video_url4: str = None,
+    video_url5: str = None,
+    coach: discord.Member = None,
+):
+    """Handle /vexi slash command with 1-5 videos, queued per-user."""
+    try:
+        await interaction.response.defer(thinking=True)
+    except (discord.errors.NotFound, discord.errors.HTTPException) as e:
+        log.warning(f"Interaction defer failed: {e}")
+        return
+
+    videos = [v for v in (video1, video2, video3, video4, video5) if v is not None]
+    urls = [u for u in (video_url1, video_url2, video_url3, video_url4, video_url5) if u]
+
+    # Validate every attachment's extension before enqueuing anything.
+    for v in videos:
+        suffix = Path(v.filename).suffix.lower()
+        if suffix not in VIDEO_EXTENSIONS:
+            await interaction.followup.send(
+                f"❌ `{v.filename}` doesn't look like a video file.\n"
+                f"Supported formats: {', '.join(VIDEO_EXTENSIONS)}"
+            )
+            return
+
+    # Build source list — attachments in slot order first, then URLs in slot order.
+    sources: list[dict] = []
+    for v in videos:
+        sources.append({"attachment": v, "url": None, "display_url": None})
+    for u in urls:
+        sources.append({"attachment": None, "url": u, "display_url": u})
+
+    if not sources:
+        await interaction.followup.send(
+            "👋 Hey! Please attach at least one video or provide a URL.\n\n"
+            "**Attach up to 5 files:** `/vexi video1: video2: ...`\n"
+            "**Or paste up to 5 URLs:** `/vexi video_url1: ...`\n"
+            "**Mix both** — Vexi will review them one at a time in the order you gave them.\n"
+            "**Tag a coach** with `coach:@CoachName` to notify them."
+        )
+        return
+
+    total = len(sources)
+    coach_ping = f"🏷️ {coach.mention} — " if coach else ""
+    if total == 1:
+        header = (
+            f"{coach_ping}🔍 **Vexi is reviewing a video from {interaction.user.mention}...** Hang tight!"
+        )
+    else:
+        header = (
+            f"{coach_ping}📥 **Vexi received {total} videos from {interaction.user.mention}.**\n"
+            f"Processing one at a time — I'll reply with each review below as it's ready."
+        )
+    master_msg = await interaction.followup.send(content=header)
+
+    for i, src in enumerate(sources, start=1):
+        await enqueue_review(
+            interaction.user.id,
+            {
+                "submitter": interaction.user,
+                "coach": coach,
+                "channel": interaction.channel,
+                "master_msg": master_msg,
+                "attachment": src["attachment"],
+                "url": src["url"],
+                "display_url": src["display_url"],
+                "index": i,
+                "total": total,
+            },
         )
 
 
@@ -1253,12 +1610,8 @@ async def study_command(
             async with aiohttp.ClientSession() as sess:
                 study = await analyze_video_with_gemini_upload(source_url, sess, prompt=active_prompt, response_json=True)
         elif is_gdrive:
-            direct_url = convert_gdrive_to_direct(source_url)
-            study = await analyze_video_with_gemini(direct_url, prompt=active_prompt, response_json=True)
-            if "error" in study:
-                log.info(f"Direct GDrive failed, trying upload fallback...")
-                async with aiohttp.ClientSession() as sess:
-                    study = await analyze_video_with_gemini_upload(direct_url, sess, prompt=active_prompt, response_json=True)
+            async with aiohttp.ClientSession() as sess:
+                study = await analyze_video_with_gemini_upload(source_url, sess, prompt=active_prompt, response_json=True)
         else:
             mime = guess_mime_type(source_url, video.filename if video else "")
             study = await analyze_video_with_gemini(source_url, mime_type=mime, prompt=active_prompt, response_json=True)
@@ -1270,7 +1623,7 @@ async def study_command(
         progress_done.set()
         await progress_task
 
-        _, embeds = build_study_message(study, source_label=source_label)
+        _, embeds, script_file, script_text = build_study_message(study, source_label=source_label)
 
         # Delete the progress bar so only two messages remain: intro + results
         try:
@@ -1278,22 +1631,36 @@ async def study_command(
         except Exception:
             pass
 
-        # Build the single reply: video (if downloaded) + both embeds
-        send_kwargs: dict = {"embeds": embeds}
+        # Build the single reply: video (if downloaded) + embeds + optional script.txt
+        files: list[discord.File] = []
         if downloaded_video_path_for_discord and os.path.exists(downloaded_video_path_for_discord):
             ext = Path(downloaded_video_path_for_discord).suffix.lower()
             friendly_name = f"{source_label.lower().replace(' ', '_')}{ext}"
-            send_kwargs["file"] = discord.File(downloaded_video_path_for_discord, filename=friendly_name)
+            files.append(discord.File(downloaded_video_path_for_discord, filename=friendly_name))
+        if script_file is not None:
+            files.append(script_file)
+
+        send_kwargs: dict = {"embeds": embeds}
+        if files:
+            send_kwargs["files"] = files
 
         try:
-            await visible_msg.reply(**send_kwargs)
+            posted = await visible_msg.reply(**send_kwargs)
         except discord.HTTPException as e:
-            if e.status == 413 and "file" in send_kwargs:
-                del send_kwargs["file"]
-                await visible_msg.reply(**send_kwargs)
+            if e.status == 413 and "files" in send_kwargs:
+                # Drop the (large) video file but keep the script.txt if present.
+                keep = [f for f in files if f.filename == "manus_script.txt"]
+                if keep:
+                    send_kwargs["files"] = keep
+                else:
+                    send_kwargs.pop("files", None)
+                posted = await visible_msg.reply(**send_kwargs)
                 await visible_msg.reply(content=f"📹 Video too large to attach — original: {source_url}")
             else:
                 raise
+
+        if script_text and posted is not None:
+            _cache_script(posted.id, script_text)
 
     except Exception as e:
         progress_done.set()
@@ -1477,11 +1844,8 @@ async def handle_mention_study(message: discord.Message, content_after_mention: 
                 downloaded_video_path_for_discord = tmp_path
                 study = await _analyze_local_file_with_gemini(tmp_path, prompt=active_prompt, response_json=True)
         elif is_gdrive:
-            direct_url = convert_gdrive_to_direct(source_url)
-            study = await analyze_video_with_gemini(direct_url, prompt=active_prompt, response_json=True)
-            if "error" in study:
-                async with aiohttp.ClientSession() as sess:
-                    study = await analyze_video_with_gemini_upload(direct_url, sess, prompt=active_prompt, response_json=True)
+            async with aiohttp.ClientSession() as sess:
+                study = await analyze_video_with_gemini_upload(source_url, sess, prompt=active_prompt, response_json=True)
         else:
             mime = guess_mime_type(source_url)
             study = await analyze_video_with_gemini(source_url, mime_type=mime, prompt=active_prompt, response_json=True)
@@ -1492,28 +1856,41 @@ async def handle_mention_study(message: discord.Message, content_after_mention: 
         progress_done.set()
         await progress_task
 
-        _, embeds = build_study_message(study, source_label=source_label)
+        _, embeds, script_file, script_text = build_study_message(study, source_label=source_label)
 
         try:
             await progress_msg.delete()
         except Exception:
             pass
 
-        send_kwargs: dict = {"embeds": embeds}
+        files: list[discord.File] = []
         if downloaded_video_path_for_discord and os.path.exists(downloaded_video_path_for_discord):
             ext = Path(downloaded_video_path_for_discord).suffix.lower()
             friendly_name = f"{source_label.lower().replace(' ', '_')}{ext}"
-            send_kwargs["file"] = discord.File(downloaded_video_path_for_discord, filename=friendly_name)
+            files.append(discord.File(downloaded_video_path_for_discord, filename=friendly_name))
+        if script_file is not None:
+            files.append(script_file)
+
+        send_kwargs: dict = {"embeds": embeds}
+        if files:
+            send_kwargs["files"] = files
 
         try:
-            await visible_msg.reply(**send_kwargs)
+            posted = await visible_msg.reply(**send_kwargs)
         except discord.HTTPException as e:
-            if e.status == 413 and "file" in send_kwargs:
-                del send_kwargs["file"]
-                await visible_msg.reply(**send_kwargs)
+            if e.status == 413 and "files" in send_kwargs:
+                keep = [f for f in files if f.filename == "manus_script.txt"]
+                if keep:
+                    send_kwargs["files"] = keep
+                else:
+                    del send_kwargs["files"]
+                posted = await visible_msg.reply(**send_kwargs)
                 await visible_msg.reply(content=f"📹 Video too large to attach — original: {source_url}")
             else:
                 raise
+
+        if script_text and posted is not None:
+            _cache_script(posted.id, script_text)
 
     except Exception as e:
         progress_done.set()
@@ -1617,12 +1994,13 @@ async def on_message(message: discord.Message):
     mime = guess_mime_type(video_url, att_filename)
 
     try:
-        # Discord CDN URLs are signed/temporary — Gemini can't fetch them directly.
-        # Skip straight to the upload fallback for Discord attachments.
+        # Discord CDN URLs are signed/temporary and Drive URLs need interstitial
+        # handling — both go straight to the upload path.
         is_discord_cdn = bool(DISCORD_CDN_PATTERN.match(video_url))
+        is_gdrive = is_gdrive_url(video_url)
 
-        if is_discord_cdn:
-            log.info("Discord CDN URL detected — using upload fallback directly.")
+        if is_discord_cdn or is_gdrive:
+            log.info(f"{'Discord CDN' if is_discord_cdn else 'Drive'} URL — using upload path directly.")
             async with aiohttp.ClientSession() as session:
                 review = await analyze_video_with_gemini_upload(video_url, session)
         else:
@@ -1671,6 +2049,185 @@ async def on_message(message: discord.Message):
         pass
 
     await bot.process_commands(message)
+
+
+# ---------------------------------------------------------------------------
+# Revise Mode — context menu on Vexi's /study output
+# ---------------------------------------------------------------------------
+REVISE_PROMPT = MANUS_KNOWLEDGE + """
+You are Vexi in Revise Mode. Rewrite the ORIGINAL SCRIPT below to follow the USER INSTRUCTION.
+
+Rules:
+- Keep it about Manus. Use MANUS GROUND TRUTH.
+- Preserve the beat-marker structure: [HOOK 0-3s], [BEAT 1 3-8s], [BEAT 2 ...], ..., [CTA]. Adjust timings if the user asked for a shorter/longer video.
+- Every beat has spoken line(s) plus a "(visual: ...)" cue.
+- Compliance-safe: no income claims, no absolute claims ("100%", "replaces humans"), no competitor brand mentions, no fake testimonials.
+- End with a Manus CTA and a soft ad-disclosure hashtag (#ManusAd or similar).
+- Return ONLY a valid JSON object (no markdown, no code fences):
+
+{"full_script": "..."}
+"""
+
+
+async def revise_script_via_gemini(original: str, instruction: str) -> dict:
+    """Text-only Gemini call: revise a script per the user's instruction."""
+    prompt = (
+        REVISE_PROMPT
+        + f"\n\nORIGINAL SCRIPT:\n{original}\n\nUSER INSTRUCTION:\n{instruction}\n"
+    )
+    try:
+        config = genai_types.GenerateContentConfig(
+            temperature=0.4,
+            response_mime_type="application/json",
+        )
+        response = await _gemini_generate([prompt], config=config)
+        raw = response.text.strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw)
+        result = _parse_json_with_repair(raw)
+        if result is None:
+            return {"error": f"AI returned invalid JSON. Raw excerpt: {raw[:300]}"}
+        return result
+    except Exception as e:
+        log.error(f"revise_script_via_gemini error: {type(e).__name__}: {e}")
+        return {"error": str(e)}
+
+
+def _extract_script_from_embed(message: discord.Message) -> str | None:
+    """Pull the script out of Vexi's Study embed3 code block (fallback path)."""
+    for e in message.embeds:
+        desc = e.description or ""
+        m = re.search(r"```(?:\w+)?\n(.*?)\n```", desc, re.DOTALL)
+        if m:
+            candidate = m.group(1).strip()
+            # Guard: must look like a beat-marked script, not some random code block
+            if "[" in candidate and "]" in candidate:
+                return candidate
+    return None
+
+
+async def _extract_script_from_attachment(message: discord.Message) -> str | None:
+    for att in message.attachments:
+        if att.filename.lower().endswith(".txt") and "script" in att.filename.lower():
+            try:
+                data = await att.read()
+                return data.decode("utf-8", errors="ignore").strip()
+            except Exception:
+                continue
+    return None
+
+
+class ReviseModal(discord.ui.Modal, title="Revise this script"):
+    instruction = discord.ui.TextInput(
+        label="How should Vexi revise the script?",
+        style=discord.TextStyle.paragraph,
+        placeholder="e.g. make it more TikTok, shorten to 30s, make it casual, alternative angle",
+        required=True,
+        max_length=500,
+    )
+
+    def __init__(self, original_script: str, target_message: discord.Message):
+        super().__init__()
+        self.original_script = original_script
+        self.target_message = target_message
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            await interaction.response.defer(thinking=True, ephemeral=True)
+        except Exception as e:
+            log.warning(f"Revise defer failed: {e}")
+            return
+
+        instruction_text = str(self.instruction).strip()
+        log.info(f"Revise request from {interaction.user}: {instruction_text[:100]}")
+
+        result = await revise_script_via_gemini(self.original_script, instruction_text)
+        if "error" in result:
+            await interaction.followup.send(
+                f"❌ Couldn't revise the script: {result['error'][:200]}", ephemeral=True
+            )
+            return
+
+        new_script = (result.get("full_script") or "").strip()
+        if not new_script:
+            await interaction.followup.send(
+                "❌ Gemini didn't return a revised script. Try again with a clearer instruction.",
+                ephemeral=True,
+            )
+            return
+
+        wrapped = f"```\n{new_script}\n```"
+        files: list[discord.File] = []
+        if len(wrapped) <= 3900:
+            desc = (
+                f"**Instruction:** *{instruction_text}*\n"
+                f"{wrapped}\n"
+                "*Right-click this message → Apps → 'Revise this script' to iterate again.*"
+            )
+        else:
+            files.append(discord.File(io.BytesIO(new_script.encode("utf-8")), filename="manus_script_revised.txt"))
+            desc = (
+                f"**Instruction:** *{instruction_text}*\n"
+                "Revised script was long — attached as `manus_script_revised.txt`.\n"
+                "*Right-click this message → Apps → 'Revise this script' to iterate again.*"
+            )
+
+        embed = discord.Embed(
+            title="🔁 Vexi Revised Script",
+            description=desc,
+            color=discord.Color.blurple(),
+        )
+        embed.set_footer(text="Vexi Study Mode • Revised • v1.3")
+
+        posted: discord.Message | None = None
+        try:
+            posted = await self.target_message.reply(embed=embed, files=files)
+        except (discord.HTTPException, discord.NotFound) as e:
+            log.warning(f"Revise reply failed ({e}), posting via followup instead.")
+            try:
+                posted = await interaction.followup.send(embed=embed, files=files)
+            except Exception as e2:
+                log.error(f"Revise followup send also failed: {e2}")
+
+        if posted is not None:
+            _cache_script(posted.id, new_script)
+            try:
+                await interaction.followup.send("✅ Revised script posted below.", ephemeral=True)
+            except Exception:
+                pass
+
+
+@bot.tree.context_menu(name="Revise this script")
+async def revise_context_menu(interaction: discord.Interaction, message: discord.Message):
+    if message.author.id != bot.user.id:
+        await interaction.response.send_message(
+            "This only works on Vexi's own /study messages.", ephemeral=True
+        )
+        return
+
+    is_study = any(
+        (e.footer and e.footer.text and "Vexi Study Mode" in e.footer.text)
+        for e in message.embeds
+    )
+    if not is_study:
+        await interaction.response.send_message(
+            "This doesn't look like a Vexi /study result. Right-click a Vexi Study Mode message and try again.",
+            ephemeral=True,
+        )
+        return
+
+    script = _get_cached_script(message.id) or _extract_script_from_embed(message)
+    if not script:
+        script = await _extract_script_from_attachment(message)
+    if not script:
+        await interaction.response.send_message(
+            "I couldn't find the script in this message (cache may have expired). Run /study again and try revise on the fresh result.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.send_modal(ReviseModal(script, message))
 
 
 # ---------------------------------------------------------------------------
