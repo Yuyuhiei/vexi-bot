@@ -101,6 +101,10 @@ MANUS GROUND TRUTH (use this to verify what you actually see on screen):
   Wrong (flag as [HIGH] misspelling): Manis, Mannus, Maus, Mauns, manis.im,
   mannus.im, and any other variant. The domain is manus.im — never .com/.io
   unless the creator is explicitly referencing a different product.
+  Auto-caption homophones to catch (CapCut/TikTok/Reels often mishear "Manus"):
+  Manners, Menace, Man is, Manis, Manas, Manuscript, Manor, Menus, Minus.
+  These are real English words, so judge by SENTENCE CONTEXT — if the sentence
+  only makes sense with "Manus" swapped back in, it's a caption error, flag it.
 """
 
 # ---------------------------------------------------------------------------
@@ -217,6 +221,11 @@ LEGAL COMPLIANCE CHECKS (v1.2 Checklist):
 16. Cultural Sensitivity — Stereotypes, accents as jokes, religious/political imagery. (LOW RISK)
 17. Music — If you hear music, give a soft reminder to confirm it's from TikTok/IG library or approved royalty-free source. NEVER flag music as a risk.
 18. Ad Disclosure — Remind creators to include at least one ad-disclosure hashtag (#ManusAd, #ManusPartner, #Ad, #Sponsored) in their caption when posting. Generic tags like #Manus alone are NOT enough. NEVER suggest putting hashtags on the video itself. NEVER flag as a risk.
+19. Website / Tool Showcase Cap — Listicle-style videos ("5 websites you need", "top AI tools", "sites that will change your workflow", etc.) that feature multiple websites or apps alongside Manus are FINE, but total distinct sites/tools shown (INCLUDING Manus itself) must be 5 or fewer. This keeps Manus from getting lost in the list. Count each named site/tool once. Examples:
+    - refero.design + motion.dev + animejs + skiper-ui.com + manus.im = 5 total → OK.
+    - 4 external sites + Manus = 5 → OK. 3 + Manus = 4 → OK.
+    - 6 or more distinct sites/tools featured (whether or not Manus is one of them) → EDIT REQUIRED [HIGH]: tell the creator to trim the list to 5 max and keep Manus as one of them. Name every site you counted.
+    Do NOT count: sites that only appear inside the Manus agent's browser as part of a task Manus is performing (Manus is using them, not showcasing them); a browser tab bar showing unrelated tabs; search-engine results pages. Only count sites the creator explicitly presents, points to, or narrates as an item in the list. (HIGH RISK when 6+)
 
 MANUS PLUG & BRAND PRESENCE CHECKS (a weak or missing plug is a potential rejection — verdict COACH ATTENTION NEEDED). Report these in the "manus_plug_paragraph" field. The four EDIT-REQUIRED cases below must each be flagged [HIGH] when present:
 1. Clear Manus Mention — Manus must be clearly mentioned in the video, spoken or as on-screen text. EDIT REQUIRED if there is NO in-video mention of Manus. (HIGH RISK)
@@ -224,6 +233,7 @@ MANUS PLUG & BRAND PRESENCE CHECKS (a weak or missing plug is a potential reject
 3. Logo on Interface — If the Manus interface is shown but there is NO Manus logo on screen, EDIT REQUIRED — tell them to add a logo. (HIGH RISK)
 4. CTA Present — The video should end with a clear CTA that ties back to Manus, e.g. "comment 'Manus' for the tool" or "comment 'PROMPT' and I'll send you the exact one". EDIT REQUIRED if no CTA is present. (HIGH RISK)
 5. Correct Spelling — Check the brand name is spelled correctly everywhere it appears, in captions, on-screen text, and the website/domain. The brand is "Manus" and the site is "manus.im". EDIT REQUIRED if it's misspelled, e.g. "Mauns", "Manis", "Manus.im" typo'd as "manis.im", "Mannus", "Maus", or any wrong domain. Name the exact misspelling and where it appears. (HIGH RISK)
+   AUTO-CAPTION HOMOPHONES — Read burned-in captions carefully (CapCut / TikTok / Reels auto-captions often mishear "Manus"). Common wrong words to watch for: "Manners", "Menace", "Man is", "Manis", "Manas", "Manuscript", "Manor", "Menus", "Minus". These are REAL words, so the test is CONTEXT: does the sentence make sense with the real word, or does it only make sense if you swap "Manus" back in? Example: "I asked Manners to build me a website" — Manners doesn't fit; this is an auto-caption error, flag as [HIGH] "captions transcribed 'Manus' as 'Manners' at 0:07 — fix the captions". Do NOT flag when the real word fits ("mind your manners"). Cite the exact sentence and timestamp.
 Also: the Manus interface/website/logo should ideally be on screen for at least ~4 seconds total — note it if it only flashes briefly. A pure low-effort plug (e.g. just a 2-second "made with Manus" text card with no real demo) is [HIGH] and routes to COACH ATTENTION NEEDED.
 
 UGC FUNDAMENTALS CHECKS:
