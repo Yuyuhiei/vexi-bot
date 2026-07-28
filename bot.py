@@ -247,6 +247,61 @@ UGC FUNDAMENTALS CHECKS:
 4. Pacing & Dead Air — Awkward silences, long pauses, or dead space?
 
 ═══════════════════════════════════════
+MANUS VIRAL VIDEO CHECKLIST (v1.0 — from the official Viral Video Checklist)
+═══════════════════════════════════════
+This is the official checklist the coach applies before approving a viral-format Manus video. Any missing item that is testable from the video itself must be flagged as [VIRAL] and routed to COACH ATTENTION NEEDED. Report all findings in the "viral_checklist_paragraph" field. Skip items that can only be checked off-video (like ManyChat setup) — just remind the creator to confirm those before posting.
+
+SECTION 1 — TEXT HOOK (first 3 seconds).
+At least ONE on-screen text hook must exist. Acceptable hook types:
+  a) Curiosity or Shock — text that makes the viewer stop scrolling
+  b) FOMO / Loss Aversion — e.g. "The colleague dumber than you is getting promoted — because he uses AI and you don't"
+  c) Identity / ICP Match — e.g. "Are you an interior designer still burning midnight oil?"
+  d) Value List — e.g. "5 AI tips every business owner should know"
+Flag [VIRAL] if there is NO on-screen text hook in the first 3 seconds, or if the text hook fits none of the four categories.
+
+SECTION 2 — VISUAL HOOK (first 3 seconds).
+  a) High-quality signal: camera is clear, bright, not blurry
+  b) Real person presence: a real face, side profile, or authentic reaction on screen
+  c) Strong emotion: stressed, proud, happy, shocked (shocked expressions perform best)
+Flag [VIRAL] if the first 3 seconds are blurry/low-quality, have no real-person presence, OR the person's expression is flat/neutral with no clear emotion.
+
+SECTION 3 — PRODUCT FORMULA (only if the video showcases a product).
+The proven 4-step structure:
+  Step 1: Shocking hook (text + visual)
+  Step 2: Visually stunning product — cut directly to the amazing end result to create the "I want that too" feeling
+  Step 3: The how — go to Manus, prompt it, use /plan mode to get started
+  Step 4: The build process — show Manus generating the result via a replay link ("watch again" → open "manus computer")
+Flag [VIRAL] any missing step. If the video skips the end-result reveal (Step 2) or skips showing the Manus build process (Step 4), call it out specifically.
+
+SECTION 4 — PRODUCT CHECKLIST (if demonstrating Manus or a Manus-built product).
+  a) Manus logo appears for at least 2 seconds — OR Manus is mentioned — OR is used as the CTA comment keyword
+  b) Functional demo: if the product is functional, the creator clicks buttons to show it working live
+  c) Publish/share features: for web-app builds, showcase publish-and-share, analytics, and/or SEO
+  d) AT LEAST 2 Manus features/showcases must appear in the video (websites, ads, IG carousels, lead gen, workflow setup, competitor research, etc.)
+Flag [VIRAL] if fewer than 2 distinct Manus features are shown, if a functional product is shown but never actually clicked, or if a web-app build never mentions publish/analytics/SEO.
+
+SECTION 5 — PACING & SUBTITLES.
+  a) Subtitles are localized to the audience's language (if non-English audience implied by spoken language, subtitles should match)
+  b) No dead space longer than 1 second (silence, still screen, no motion)
+  c) No information overload — screen isn't wall-to-wall wordy; avoid huge chunks of text
+Flag [VIRAL] on dead space >1s, subtitles missing or in the wrong language, or on visibly overloaded text-heavy screens.
+
+SECTION 6 — CTA & AUTOMATION.
+  a) Clear SPOKEN CTA with a comment trigger keyword (e.g. "Comment MANUS and I'll send you the link")
+  b) [OFF-VIDEO — cannot verify] ManyChat / Super Profile DM automation, follow requirement, DM message body, and link. In the paragraph, remind the creator to confirm the DM automation is set up and tested BEFORE posting.
+Flag [VIRAL] if there is no clear spoken CTA with a comment keyword.
+
+SECTION 7 — COMPLIANCE (Zero Tolerance).
+  a) NO "AI replaces humans" framing — never frame AI as firing people or replacing jobs. Use empowerment framing.
+  b) NO forbidden IP: zero Disney, Marvel, or anime IP. (This is stricter than the general copyright rule — for these three franchises there is no gray area.)
+  c) Hashtag reminder: creator's caption should include #PR / #ad / #sponsored AND #manus (remind them; do not flag as [VIRAL] since captions are set at post time)
+  d) Brand accuracy: uses the correct Manus logo (already covered by the Manus Plug checks)
+  e) NO false promises: no money guarantees, no absolute claims like "100% success" or "guaranteed results" (already covered by Legal Layer 0.5 and check #2 — cross-reference, don't double-count)
+Flag [VIRAL] on any "AI replaces humans" framing or any visible Disney/Marvel/anime IP.
+
+CRITICAL: The Product Formula (Section 3) and Product Checklist (Section 4) only apply if the video is showcasing Manus or a Manus-built product. If the video is a pure talking-head testimonial with no product demo, mark those two sections N/A and skip them.
+
+═══════════════════════════════════════
 OUTPUT FORMAT — COMPACT & CONVERSATIONAL
 ═══════════════════════════════════════
 Return ONLY a valid JSON object (no markdown, no code fences) with this exact structure:
@@ -258,6 +313,7 @@ Return ONLY a valid JSON object (no markdown, no code fences) with this exact st
   "legal_paragraph": "Write a SHORT conversational paragraph (3-5 sentences max) summarizing the legal compliance findings. If AUTO-REJECT keywords were found, lead with them clearly using [AUTO-REJECT] and the exact phrase. Then naturally weave in any other flags — mention the specific issue, the risk level in brackets like [HIGH] or [MEDIUM], and the timestamp if applicable. If there are no flags, say so briefly. Always end with the music soft reminder (if music was detected) and the ad-disclosure hashtag reminder as natural sentences. Example tone for clean video: 'No major legal flags here! No income guarantees, absolute claims, or copyrighted content spotted. One soft note — at 0:15 there's a time-saved claim without visible proof [MEDIUM], so your coach might want to verify that. I hear some background music, so just confirm it's from a licensed source. And remember to pop an ad-disclosure hashtag like #ManusAd in your caption when posting!'",
   "content_paragraph": "Write a SHORT conversational paragraph (3-5 sentences max) summarizing the UGC fundamentals ONLY. Cover safe zones, lighting/audio, the hook (mention which of the 12 categories it fits and whether it's strong or could be improved — suggest a specific alternative if weak), and pacing. Do NOT cover the Manus plug here — that goes in its own field. Be constructive and specific. Example tone: 'Lighting and audio are solid — your face is well-lit and the sound is crisp. Safe zones look good for IG and TikTok. Your hook falls into the Demo/How-To category and it's decent, but it could be punchier — try opening with something like \"I built an entire website in 30 seconds\" to create more instant curiosity. Pacing is smooth throughout with no dead air.'",
   "manus_plug_paragraph": "Write a SHORT conversational paragraph (2-4 sentences max) evaluating ONLY the Manus plug. Check these four things explicitly and call out any that need an edit as [HIGH]: (1) Is Manus clearly mentioned in the video (spoken or on-screen text)? Flag if there is no in-video mention. (2) Is the Manus logo present? A tiny logo at the bottom is fine, but flag if there is NO Manus logo at all. (3) If the Manus interface is shown but there is no Manus logo on screen, flag that the logo should be added. (4) Is there a clear CTA, e.g. 'comment Manus for the tool/prompt'? Flag if no CTA is present. (5) Is 'Manus' (and the domain 'manus.im') spelled correctly everywhere it appears? Flag any misspelling like 'Mauns', 'Manis', 'manis.im' and name where it appears. If everything is good, say so briefly. Example tone: 'Your Manus plug is clear — you mention Manus at 0:03 and the interface is on screen for a good 6 seconds. One edit though [HIGH]: I don't see a Manus logo anywhere, so add at least a small one (bottom corner is fine). Also, there's no closing CTA — try ending with \"comment MANUS and I'll send you the tool.\"'",
+  "viral_checklist_paragraph": "Write a SHORT conversational paragraph (4-6 sentences max) walking through the Manus Viral Video Checklist. Cover the applicable sections in order: (1) Text hook — was there an on-screen text hook in the first 3s and did it fit Curiosity/Shock, FOMO, Identity/ICP, or Value List? (2) Visual hook — clear camera, real person, strong emotion? (3) Product formula — if a product is shown, did they follow shock hook → stunning result → the how (going to Manus, /plan) → build process (replay link)? (4) Product checklist — Manus logo ≥2s or mentioned or as CTA keyword, functional demo actually clicked, publish/analytics/SEO shown for web apps, at least 2 Manus features/showcases? (5) Pacing/subtitles — dead space, subtitle language, info overload? (6) CTA & automation — clear spoken CTA with a comment keyword, and remind them to have ManyChat/Super Profile DM automation live before posting. (7) Compliance — no 'AI replaces humans' framing, no Disney/Marvel/anime IP. Flag anything missing as [VIRAL]. Skip sections that don't apply (e.g. Product Formula for a pure testimonial) — say so briefly. Example tone: 'Viral checklist walk-through — your text hook at 0:00 (\"5 AI tips every founder needs\") lands as Value List, nice. Visual hook is solid: clear camera, your face on screen, mild curious expression. Product Formula [VIRAL]: you jump straight from the hook to Manus without showing the finished result first — cut to the end product between 0:03 and 0:06 so viewers get the wow moment. Only 1 Manus feature shown (website build) [VIRAL] — the checklist wants at least 2; add a quick clip of publishing or analytics. Pacing looks tight, no dead air. Spoken CTA is present at 0:32. Make sure ManyChat is set up and tested before you post. No 'AI replaces humans' framing and no forbidden IP — compliance is clean.'",
   "quick_verdict": "LOOKS GOOD / NEEDS REVIEW / COACH ATTENTION NEEDED / AUTO-REJECT / NOT MANUS CONTENT",
   "overall_summary": "One final sentence. Always include: 'A human coach will review this shortly for final approval.' If AUTO-REJECT, start with: 'This video contains auto-reject language and must be reviewed by a coach before any use.' then end with: 'If you think this is a mistake, please tag your coach for a manual review.'"
 }
@@ -265,11 +321,12 @@ Return ONLY a valid JSON object (no markdown, no code fences) with this exact st
 VERDICT ROUTING:
 - Any AUTO-REJECT trigger (see LAYER 0.5) → "quick_verdict" = "AUTO-REJECT".
 - Any [HIGH] flag — including copyrighted/trademarked material or a weak/missing/low-effort Manus plug → "quick_verdict" = "COACH ATTENTION NEEDED".
+- Any [VIRAL] flag from the Manus Viral Video Checklist → "quick_verdict" = "COACH ATTENTION NEEDED".
 - Only [MEDIUM] flags and no higher → "quick_verdict" = "NEEDS REVIEW".
 - No flags at all → "quick_verdict" = "LOOKS GOOD".
 
 CRITICAL RULES FOR THE PARAGRAPHS:
-- Keep paragraphs SHORT: legal 3-5 sentences, content 3-5 sentences, Manus plug 2-4 sentences. Do NOT write essays.
+- Keep paragraphs SHORT: legal 3-5 sentences, content 3-5 sentences, Manus plug 2-4 sentences, viral checklist 4-6 sentences. Do NOT write essays.
 - Be conversational and friendly, like a peer creator giving feedback in a chat.
 - Naturally mention ALL relevant checks within the paragraph flow — don't use headers, bullet points, or field labels.
 - If something is fine, you can group multiple "all good" items in one sentence (e.g., "No income guarantees, copyrighted content, or fake testimonials spotted.").
@@ -315,9 +372,16 @@ Write a ready-to-record script the creator can paste and shoot. It must be:
 - 25-60 seconds of runtime total
 - Structured with beat markers on their own lines: [HOOK 0-3s], [BEAT 1 3-8s], [BEAT 2 ...], ..., [CTA]
 - Every beat has: spoken line(s) in plain prose, then a "(visual: ...)" cue in parentheses on the SAME line or the next line
-- Tailored to a Manus feature that fits the source video's format (name the specific Manus capability)
-- Compliance-safe: NO income claims, NO absolute claims like "100%" or "replaces humans", NO competitor brand mentions or logos, NO fake testimonials. Include a soft ad-disclosure reminder in the CTA area (e.g. "and tag #ManusAd").
-- End with a clear CTA that ties back to Manus (e.g. "comment MANUS and I'll send the exact prompt")
+- Tailored to a Manus feature that fits the source video's format (name the specific Manus capability). Aim to showcase AT LEAST 2 distinct Manus features across the beats (per the Viral Video Checklist).
+- Compliance-safe: NO income claims, NO absolute claims like "100%" or "replaces humans", NO "AI replaces humans" framing, NO Disney/Marvel/anime IP, NO competitor brand mentions or logos, NO fake testimonials. Include a soft ad-disclosure reminder in the CTA area (e.g. "and tag #ManusAd #ad").
+- End with a clear CTA that ties back to Manus with a comment keyword (e.g. "comment MANUS and I'll send the exact prompt") — this is what triggers ManyChat/Super Profile DM automation on the creator's end.
+
+MUST follow the MANUS VIRAL VIDEO CHECKLIST:
+- HOOK 0-3s must have BOTH:
+  (a) an on-screen text hook that fits ONE of: Curiosity/Shock, FOMO/Loss Aversion, Identity/ICP Match ("Are you a [role] struggling with X?"), or Value List ("5 things every [role] should know") — write this text hook explicitly in the (visual: ...) cue
+  (b) a spoken hook and a visible face/emotion (creator on camera, ideally shocked or curious)
+- If the source video is a product showcase, the script MUST follow the Product Formula: Step 1 Shocking Hook → Step 2 cut to visually stunning end result ("I want that too" moment) → Step 3 "the how" (opening Manus, prompting it, using /plan) → Step 4 build process (Manus computer / replay link footage)
+- Keep pacing tight — no beat should imply more than ~1 second of silence or a static screen
 
 ═══════════════════════════════════════
 OUTPUT FORMAT
@@ -1000,6 +1064,11 @@ def build_review_message(review: dict, creator: str = None) -> tuple[str | None,
     plug = review.get("manus_plug_paragraph", "")
     if plug:
         parts.append(f"\n🔌 **Manus Plug:**\n{plug}")
+
+    # Layer 4 — Viral checklist paragraph
+    viral = review.get("viral_checklist_paragraph", "")
+    if viral:
+        parts.append(f"\n🚀 **Viral Video Checklist:**\n{viral}")
 
     # Overall summary
     summary = review.get("overall_summary", "A human coach will review this shortly for final approval.")
