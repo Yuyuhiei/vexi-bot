@@ -789,6 +789,9 @@ def _is_retryable(exc: Exception) -> bool:
 
 
 async def _gemini_generate(contents: list, retries: int = 3, config=None) -> object:
+    """Wrap the SYNCHRONOUS Gemini SDK call in asyncio.to_thread so it doesn't
+    block the event loop (which would starve Discord's 3s slash-command ACK and
+    cause 'The application did not respond' errors on concurrent commands)."""
     delays = [5, 15, 30]
     last_exc = None
     for attempt in range(retries):
@@ -796,7 +799,7 @@ async def _gemini_generate(contents: list, retries: int = 3, config=None) -> obj
             kwargs = {"model": "gemini-2.5-flash", "contents": contents}
             if config is not None:
                 kwargs["config"] = config
-            return gemini_client.models.generate_content(**kwargs)
+            return await asyncio.to_thread(gemini_client.models.generate_content, **kwargs)
         except Exception as e:
             last_exc = e
             if _is_retryable(e) and attempt < retries - 1:
@@ -808,51 +811,91 @@ async def _gemini_generate(contents: list, retries: int = 3, config=None) -> obj
     raise last_exc
 
 
+# Explicit output-token ceiling for JSON review calls. Truncated responses
+# (finish_reason=STOP mid-string) are the main cause of "AI returned invalid
+# JSON" errors — the model quietly capped itself. 16k gives every paragraph
+# room to breathe including the new viral_checklist_paragraph.
+GEMINI_JSON_MAX_OUTPUT_TOKENS = 16384
+
+
+def _build_generate_config(response_json: bool, temperature: float = 0.2) -> "genai_types.GenerateContentConfig":
+    kwargs: dict = {"temperature": temperature}
+    if response_json:
+        kwargs["response_mime_type"] = "application/json"
+        kwargs["max_output_tokens"] = GEMINI_JSON_MAX_OUTPUT_TOKENS
+    return genai_types.GenerateContentConfig(**kwargs)
+
+
+async def _gemini_call_and_parse(contents: list, response_json: bool, label: str = "gemini") -> dict:
+    """Call Gemini, parse the JSON reply, and retry once on parse/truncation
+    failures. Returns a dict — either the parsed result or {"error": ...} with
+    a creator-friendly message."""
+    last_raw = ""
+    last_fr = "unknown"
+    for attempt in (1, 2):
+        temp = 0.2 if attempt == 1 else 0.35  # nudge temp up on retry to avoid deterministic re-truncation
+        config = _build_generate_config(response_json=response_json, temperature=temp)
+        try:
+            response = await _gemini_generate(contents, config=config)
+        except Exception as e:
+            log.error(f"{label} Gemini call failed on attempt {attempt}: {type(e).__name__}: {e}")
+            if attempt == 2:
+                return {"error": f"Gemini call failed: {e}"}
+            continue
+
+        raw = (response.text or "").strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw)
+        last_raw = raw
+        try:
+            last_fr = str(response.candidates[0].finish_reason)
+        except Exception:
+            last_fr = "unknown"
+
+        log.info(f"{label} response length: {len(raw)} chars, finish_reason={last_fr} (attempt {attempt})")
+        result = _parse_json_with_repair(raw)
+        if result is not None:
+            return result
+
+        log.warning(f"{label} JSON parse failed on attempt {attempt} (finish_reason={last_fr}). Raw excerpt: {raw[:300]}")
+        # fall through to retry
+
+    log.error(f"{label} JSON parse failed after retry. finish_reason={last_fr}. Raw: {last_raw[:500]}")
+    return {
+        "error": (
+            "The AI's reply got cut off before it could finish (finish_reason="
+            f"{last_fr}). This usually clears up on a retry — please try running "
+            "the command again in a moment."
+        )
+    }
+
+
 async def analyze_video_with_gemini(video_url: str, mime_type: str = "video/mp4", prompt: str = None, response_json: bool = False) -> dict:
     """Send video URL directly to Gemini for review (no local download needed).
 
-    If response_json=True, asks Gemini to enforce JSON output via response_mime_type.
+    If response_json=True, asks Gemini to enforce JSON output via response_mime_type
+    and retries once on parse failure.
     """
     if prompt is None:
         prompt = REVIEW_PROMPT
-    raw_text = ""
-    response = None
+    # For the URL-fetch path we always want JSON structured output from the
+    # review/study prompts. Callers pass response_json=True for /study; the
+    # legacy /vexi callers relied on the model returning JSON by convention.
+    # Always force JSON when the prompt is one of ours to eliminate ambiguity.
+    force_json = response_json or (prompt in (REVIEW_PROMPT, STUDY_PROMPT))
     try:
-        log.info(f"Sending video URL to Gemini: {video_url[:120]}...")
-        log.info(f"MIME type: {mime_type}")
-
-        video_part = genai_types.Part.from_uri(
-            file_uri=video_url,
-            mime_type=mime_type,
-        )
-
-        # Low temperature reduces hallucinated copyright/IP matches (e.g. calling a
-        # generic character "SpongeBob"). 0.2 keeps it factual but not robotic.
-        config_kwargs = {"temperature": 0.2}
-        if response_json:
-            config_kwargs["response_mime_type"] = "application/json"
-        config = genai_types.GenerateContentConfig(**config_kwargs)
-
+        log.info(f"Sending video URL to Gemini: {video_url[:120]}... (mime={mime_type})")
+        video_part = genai_types.Part.from_uri(file_uri=video_url, mime_type=mime_type)
         log.info("Calling Gemini 2.5 Flash for review...")
-        response = await _gemini_generate([video_part, prompt], config=config)
-
-        raw_text = response.text.strip()
-        log.info(f"Gemini response length: {len(raw_text)} chars")
-        if raw_text.startswith("```"):
-            raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
-            raw_text = re.sub(r"\s*```$", "", raw_text)
-
-        result = _parse_json_with_repair(raw_text)
-        if result is None:
-            try:
-                fr = response.candidates[0].finish_reason
-            except Exception:
-                fr = "unknown"
-            log.error(f"JSON parse failed (finish_reason={fr}). Raw: {raw_text[:500]}")
-            return {"error": f"AI returned invalid JSON (finish_reason={fr}). Raw excerpt: {raw_text[:300]}"}
-        log.info(f"Review complete. Verdict: {result.get('quick_verdict', 'N/A')}")
+        result = await _gemini_call_and_parse(
+            contents=[video_part, prompt],
+            response_json=force_json,
+            label="review(url)",
+        )
+        if "error" not in result:
+            log.info(f"Review complete. Verdict: {result.get('quick_verdict', 'N/A')}")
         return result
-
     except Exception as e:
         log.error(f"Gemini error: {type(e).__name__}: {e}")
         import traceback
@@ -863,18 +906,17 @@ async def analyze_video_with_gemini(video_url: str, mime_type: str = "video/mp4"
 async def _analyze_local_file_with_gemini(file_path: str, prompt: str = None, response_json: bool = False) -> dict:
     """Upload a local file to Gemini File API and analyze it.
 
-    If response_json=True, asks Gemini to enforce JSON output via response_mime_type.
-    On JSON parse failure, includes a raw excerpt and finish_reason in the error.
+    Uses the shared JSON parse + retry helper. Deletes the uploaded file when done.
     """
     if prompt is None:
         prompt = REVIEW_PROMPT
-    raw_text = ""
-    response = None
+    force_json = response_json or (prompt in (REVIEW_PROMPT, STUDY_PROMPT))
     uploaded_file = None
     try:
         mime = guess_mime_type(file_path)
         log.info(f"Uploading local file to Gemini File API: {file_path} ({mime})")
-        uploaded_file = gemini_client.files.upload(file=file_path)
+        # Blocking SDK calls → run in a thread to avoid stalling the event loop.
+        uploaded_file = await asyncio.to_thread(gemini_client.files.upload, file=file_path)
         log.info(f"Upload complete: {uploaded_file.name}, state={uploaded_file.state}")
 
         max_wait = 120
@@ -882,43 +924,30 @@ async def _analyze_local_file_with_gemini(file_path: str, prompt: str = None, re
         while uploaded_file.state.name == "PROCESSING" and waited < max_wait:
             await asyncio.sleep(5)
             waited += 5
-            uploaded_file = gemini_client.files.get(name=uploaded_file.name)
+            uploaded_file = await asyncio.to_thread(gemini_client.files.get, name=uploaded_file.name)
 
         if uploaded_file.state.name != "ACTIVE":
             return {"error": f"File processing failed. State: {uploaded_file.state.name}"}
 
-        # Low temperature reduces hallucinated copyright/IP matches (e.g. calling a
-        # generic character "SpongeBob"). 0.2 keeps it factual but not robotic.
-        config_kwargs = {"temperature": 0.2}
-        if response_json:
-            config_kwargs["response_mime_type"] = "application/json"
-        config = genai_types.GenerateContentConfig(**config_kwargs)
-
-        response = await _gemini_generate([uploaded_file, prompt], config=config)
-        raw_text = response.text.strip()
-        log.info(f"Gemini response length: {len(raw_text)} chars")
-        if raw_text.startswith("```"):
-            raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
-            raw_text = re.sub(r"\s*```$", "", raw_text)
-
-        result = _parse_json_with_repair(raw_text)
+        result = await _gemini_call_and_parse(
+            contents=[uploaded_file, prompt],
+            response_json=force_json,
+            label="review(upload)",
+        )
 
         try:
-            gemini_client.files.delete(name=uploaded_file.name)
+            await asyncio.to_thread(gemini_client.files.delete, name=uploaded_file.name)
         except Exception:
             pass
 
-        if result is None:
-            try:
-                fr = response.candidates[0].finish_reason
-            except Exception:
-                fr = "unknown"
-            log.error(f"JSON parse failed (finish_reason={fr}). Raw: {raw_text[:500]}")
-            return {"error": f"AI returned invalid JSON (finish_reason={fr}). Raw excerpt: {raw_text[:300]}"}
         return result
-
     except Exception as e:
         log.error(f"Local file Gemini upload error: {type(e).__name__}: {e}")
+        if uploaded_file is not None:
+            try:
+                await asyncio.to_thread(gemini_client.files.delete, name=uploaded_file.name)
+            except Exception:
+                pass
         return {"error": str(e)}
 
 
@@ -991,9 +1020,27 @@ def build_review_message(review: dict, creator: str = None) -> tuple[str | None,
     """
     # --- Error ---
     if "error" in review:
+        err_msg = review["error"]
+        # Friendly wording for the common "response got cut off" case.
+        is_truncation = (
+            "finish_reason" in err_msg
+            or "cut off" in err_msg.lower()
+            or "invalid json" in err_msg.lower()
+        )
+        if is_truncation:
+            description = (
+                "😅 My reply got cut off before I could finish reviewing your video. "
+                "This usually clears up on its own — please try `/vexi` again on the "
+                "same video in a moment. If it keeps happening, tag a coach."
+            )
+        else:
+            description = (
+                f"Something went wrong during the review:\n```{err_msg[:500]}```\n"
+                "Please try again or ask a coach for help."
+            )
         err_embed = discord.Embed(
             title="Vexi — Review Error",
-            description=f"Something went wrong during the review:\n```{review['error'][:500]}```\nPlease try again or ask a coach for help.",
+            description=description,
             color=discord.Color.red(),
         )
         return (None, [err_embed])
@@ -2154,23 +2201,11 @@ async def revise_script_via_gemini(original: str, instruction: str) -> dict:
         REVISE_PROMPT
         + f"\n\nORIGINAL SCRIPT:\n{original}\n\nUSER INSTRUCTION:\n{instruction}\n"
     )
-    try:
-        config = genai_types.GenerateContentConfig(
-            temperature=0.4,
-            response_mime_type="application/json",
-        )
-        response = await _gemini_generate([prompt], config=config)
-        raw = response.text.strip()
-        if raw.startswith("```"):
-            raw = re.sub(r"^```(?:json)?\s*", "", raw)
-            raw = re.sub(r"\s*```$", "", raw)
-        result = _parse_json_with_repair(raw)
-        if result is None:
-            return {"error": f"AI returned invalid JSON. Raw excerpt: {raw[:300]}"}
-        return result
-    except Exception as e:
-        log.error(f"revise_script_via_gemini error: {type(e).__name__}: {e}")
-        return {"error": str(e)}
+    return await _gemini_call_and_parse(
+        contents=[prompt],
+        response_json=True,
+        label="revise",
+    )
 
 
 def _extract_script_from_embed(message: discord.Message) -> str | None:
