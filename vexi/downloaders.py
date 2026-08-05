@@ -364,3 +364,72 @@ def guess_mime_type(url: str, filename: str = "") -> str:
     elif ".m4v" in check:
         return "video/x-m4v"
     return "video/mp4"
+
+
+async def download_direct(url: str, session: aiohttp.ClientSession) -> tuple[str | None, str | None]:
+    """Stream a direct/CDN video URL to a temp file. Returns (path, error)."""
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    tmp_path: str | None = None
+    try:
+        async with session.get(
+            url,
+            timeout=aiohttp.ClientTimeout(total=300, connect=30),
+            headers=headers,
+            allow_redirects=True,
+        ) as resp:
+            if resp.status != 200:
+                return None, f"Download failed: HTTP {resp.status}"
+            content_type = resp.headers.get("Content-Type", "")
+            if "text/html" in content_type:
+                return None, "Got HTML instead of video. Check the URL."
+
+            ext = ".mp4"
+            if "quicktime" in content_type or ".mov" in url.lower():
+                ext = ".mov"
+            elif "webm" in content_type:
+                ext = ".webm"
+
+            tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False, prefix="vexi_direct_")
+            total = 0
+            async for chunk in resp.content.iter_chunked(1024 * 256):
+                tmp.write(chunk)
+                total += len(chunk)
+                if total > MAX_VIDEO_BYTES:
+                    tmp.close()
+                    os.unlink(tmp.name)
+                    return None, "Video exceeds 100MB limit."
+            tmp.close()
+            tmp_path = tmp.name
+            log.info(f"Downloaded {total / 1024 / 1024:.1f}MB to {tmp_path}")
+            return tmp_path, None
+    except Exception as e:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+        return None, f"Download error: {e}"
+
+
+async def acquire_video(source_url: str, session: aiohttp.ClientSession) -> tuple[str | None, str | None, str | None]:
+    """Unified front door for the multiagent pipeline — it always needs local
+    bytes for ffmpeg. Routes by URL type. Returns (local_path, extra_tmp_dir,
+    error); extra_tmp_dir is a directory the caller must rmtree (yt-dlp/Apify
+    downloads live inside one), or None."""
+    if is_gdrive_url(source_url):
+        path, err = await download_gdrive(source_url, session)
+        return path, None, err
+
+    if _is_social_media_url(source_url):
+        path, err = await download_with_ytdlp(source_url)
+        if not path and (INSTAGRAM_PATTERN.search(source_url) or TIKTOK_PATTERN.search(source_url)) and APIFY_API_TOKEN:
+            log.warning(f"yt-dlp failed ({err}) — trying Apify fallback...")
+            path, apify_err = await download_with_apify(source_url, session)
+            if not path:
+                err = f"yt-dlp: {err} | apify: {apify_err}"
+        if path:
+            return path, os.path.dirname(path), None
+        return None, None, err
+
+    path, err = await download_direct(source_url, session)
+    return path, None, err

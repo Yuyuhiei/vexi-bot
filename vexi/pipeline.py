@@ -49,18 +49,25 @@ async def run_legacy_review(
     return result
 
 
-async def run_review(source_url: str, mime_type: str = "video/mp4") -> tuple[dict, str]:
-    """Dispatch a /vexi-style review. Returns (review_dict, pipeline_used)."""
+async def run_review(
+    source_url: str,
+    mime_type: str = "video/mp4",
+    creator_name: str | None = None,
+    progress=None,
+) -> tuple[dict, str]:
+    """Dispatch a /vexi-style review. Returns (review_dict, pipeline_used).
+
+    pipeline_used ∈ {"legacy", "multiagent", "legacy-fallback"} — the renderer
+    picks the legacy embed for anything that isn't "multiagent". `progress` is
+    an optional async callable(stage_label) for real progress updates."""
     if VEXI_PIPELINE == "multiagent":
-        # Multiagent orchestrator arrives in a later increment; keep the flag
-        # wired so the dispatch path is already exercised.
+        from vexi.multiagent import run_multiagent_review  # deferred: keeps legacy path import-light
+
         try:
-            from vexi.multiagent import run_multiagent_review  # noqa: WPS433
-        except ImportError:
-            log.warning("VEXI_PIPELINE=multiagent but the multiagent module isn't available — using legacy.")
-            return await run_legacy_review(source_url, mime_type=mime_type), "legacy"
-        try:
-            return await run_multiagent_review(source_url, mime_type=mime_type), "multiagent"
+            review = await run_multiagent_review(
+                source_url, mime_type=mime_type, creator_name=creator_name, progress=progress
+            )
+            return review, "multiagent"
         except Exception:
             log.exception("Multiagent pipeline hard-failed — falling back to legacy for this review.")
             return await run_legacy_review(source_url, mime_type=mime_type), "legacy-fallback"

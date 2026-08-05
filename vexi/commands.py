@@ -20,6 +20,7 @@ from vexi.config import (
     APIFY_API_TOKEN,
     COACH_ROLE_ID,
     VEXI_CHANNEL_IDS,
+    VEXI_PIPELINE,
     log,
 )
 from vexi.downloaders import (
@@ -40,10 +41,12 @@ from vexi.pipeline import run_legacy_review, run_review
 from vexi.progress import REVIEW_STAGES, STUDY_STAGES, ProgressAnimation
 from vexi.prompts import REVISE_PROMPT, STUDY_PROMPT
 from vexi.render import (
+    DetailsButton,
     _cache_script,
     _extract_script_from_attachment,
     _extract_script_from_embed,
     _get_cached_script,
+    build_review_layout,
     build_review_message,
     build_study_message,
 )
@@ -58,6 +61,13 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Track whether we've already synced commands (avoid re-syncing on reconnect)
 _commands_synced = False
+
+
+@bot.event
+async def setup_hook():
+    # Persistent "View full analysis" buttons keep working across restarts:
+    # DynamicItem dispatches on custom_id pattern, state lives on the message.
+    bot.add_dynamic_items(DetailsButton)
 
 
 @bot.event
@@ -164,29 +174,60 @@ async def process_single_review(
     progress_header = f"⏳ **Vexi is analyzing {label.lower()}...**"
     progress_msg = await video_msg.reply(content=f"{progress_header}\n▁▁▁▁▁▁▁▁▁▁ Sending to AI...")
 
-    progress = ProgressAnimation(progress_msg, progress_header, REVIEW_STAGES)
-    progress.start()
+    # Multiagent pipeline reports REAL stages; legacy keeps the cosmetic bar.
+    progress: ProgressAnimation | None = None
+    progress_cb = None
+    if VEXI_PIPELINE == "multiagent":
+        async def progress_cb(stage: str) -> None:
+            try:
+                await progress_msg.edit(content=f"{progress_header}\n{stage}")
+            except Exception:
+                pass
+    else:
+        progress = ProgressAnimation(progress_msg, progress_header, REVIEW_STAGES)
+        progress.start()
 
     source_url = attachment.url if attachment is not None else (url or "")
     filename = attachment.filename if attachment is not None else ""
     mime = guess_mime_type(source_url, filename)
 
     try:
-        review, _pipeline_used = await run_review(source_url, mime_type=mime)
+        review, pipeline_used = await run_review(
+            source_url,
+            mime_type=mime,
+            creator_name=getattr(submitter, "display_name", str(submitter)),
+            progress=progress_cb,
+        )
 
-        await progress.finish()
-
-        content_text, embeds = build_review_message(review, creator=f"{submitter.mention}")
+        if progress:
+            await progress.finish()
 
         # Ping coach only on the FIRST video's review (so a batch of 5 doesn't
         # spam @coach five times). Index 1 is the first video.
-        if coach and index == 1:
-            prefix = f"🏷️ {coach.mention} — "
-            content_text = (prefix + (content_text or "")).strip()
+        coach_ping = coach and index == 1
 
-        await progress_msg.edit(content=content_text or None, embeds=embeds)
+        if pipeline_used == "multiagent" and "error" not in review:
+            coach_line = f"🏷️ {coach.mention} — new review ready!" if coach_ping else None
+            view, state_file = build_review_layout(review, submitter.mention, coach_line)
+            try:
+                await progress_msg.delete()
+            except Exception:
+                pass
+            await channel.send(
+                view=view,
+                files=[state_file],
+                reference=video_msg,
+                allowed_mentions=discord.AllowedMentions(users=True, roles=True, everyone=False),
+            )
+        else:
+            content_text, embeds = build_review_message(review, creator=f"{submitter.mention}")
+            if coach_ping:
+                prefix = f"🏷️ {coach.mention} — "
+                content_text = (prefix + (content_text or "")).strip()
+            await progress_msg.edit(content=content_text or None, embeds=embeds)
     except Exception as e:
-        await progress.finish()
+        if progress:
+            await progress.finish()
         log.error(f"process_single_review error (video {index}/{total}): {type(e).__name__}: {e}")
         try:
             await progress_msg.edit(
@@ -649,12 +690,20 @@ async def on_message(message: discord.Message):
     except Exception:
         pass
 
-    thinking_msg = await message.reply(
-        "⏳ **Vexi is analyzing your video...**\n▁▁▁▁▁▁▁▁▁▁ Sending to AI..."
-    )
+    thinking_header = "⏳ **Vexi is analyzing your video...**"
+    thinking_msg = await message.reply(f"{thinking_header}\n▁▁▁▁▁▁▁▁▁▁ Sending to AI...")
 
-    progress = ProgressAnimation(thinking_msg, "⏳ **Vexi is analyzing your video...**", REVIEW_STAGES)
-    progress.start()
+    progress: ProgressAnimation | None = None
+    progress_cb = None
+    if VEXI_PIPELINE == "multiagent":
+        async def progress_cb(stage: str) -> None:
+            try:
+                await thinking_msg.edit(content=f"{thinking_header}\n{stage}")
+            except Exception:
+                pass
+    else:
+        progress = ProgressAnimation(thinking_msg, thinking_header, REVIEW_STAGES)
+        progress.start()
 
     att_filename = ""
     for att in message.attachments:
@@ -664,9 +713,15 @@ async def on_message(message: discord.Message):
     mime = guess_mime_type(video_url, att_filename)
 
     try:
-        review, _pipeline_used = await run_review(video_url, mime_type=mime)
+        review, pipeline_used = await run_review(
+            video_url,
+            mime_type=mime,
+            creator_name=message.author.display_name,
+            progress=progress_cb,
+        )
 
-        await progress.finish()
+        if progress:
+            await progress.finish()
 
         if "error" in review:
             await thinking_msg.edit(
@@ -680,16 +735,28 @@ async def on_message(message: discord.Message):
             )
             return
 
-        content_text, embeds = build_review_message(review, creator=f"{message.author.mention}")
-
-        # Coach ping
-        ping_text = content_text or ""
+        coach_line = None
         if COACH_ROLE_ID:
-            ping_text = f"🏷️ <@&{COACH_ROLE_ID}> — new video submitted by {message.author.mention} for review!"
+            coach_line = f"🏷️ <@&{COACH_ROLE_ID}> — new video submitted by {message.author.mention} for review!"
 
-        await thinking_msg.edit(content=ping_text if ping_text else None, embeds=embeds)
+        if pipeline_used == "multiagent":
+            view, state_file = build_review_layout(review, message.author.mention, coach_line)
+            try:
+                await thinking_msg.delete()
+            except Exception:
+                pass
+            await message.reply(
+                view=view,
+                files=[state_file],
+                allowed_mentions=discord.AllowedMentions(users=True, roles=True, everyone=False),
+            )
+        else:
+            content_text, embeds = build_review_message(review, creator=f"{message.author.mention}")
+            ping_text = coach_line or content_text or ""
+            await thinking_msg.edit(content=ping_text if ping_text else None, embeds=embeds)
     except Exception as e:
-        await progress.finish()
+        if progress:
+            await progress.finish()
         log.error(f"Auto-detect error: {type(e).__name__}: {e}")
         await thinking_msg.edit(
             content=f"❌ Something went wrong during the review. Please try again.\nError: {str(e)[:200]}"
