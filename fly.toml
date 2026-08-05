@@ -2,19 +2,13 @@
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
+# Note: no [http_service] — the bot opens no HTTP listener (Discord gateway
+# only). The machine stays running because no autostop service is defined.
 
 app = 'vexi-bot'
 primary_region = 'cdg'
 
 [build]
-
-[http_service]
-  internal_port = 8080
-  force_https = true
-  auto_stop_machines = 'off'
-  auto_start_machines = false
-  min_machines_running = 1
-  processes = ['app']
 
 [[vm]]
   memory = '1gb'

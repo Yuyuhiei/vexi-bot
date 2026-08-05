@@ -1,0 +1,28 @@
+# Staging app config — a second, fully separate Fly app + Discord bot for
+# testing new Vexi versions against real videos before touching production.
+#
+# One-time setup:
+#   1. Discord Developer Portal → New Application "Vexi Staging" → Bot →
+#      copy token, enable MESSAGE CONTENT intent → OAuth2 URL Generator
+#      (scopes: bot, applications.commands; perms: Send Messages, Read
+#      History, Add Reactions, Attach Files) → invite to a private test channel.
+#   2. fly apps create vexi-bot-staging
+#   3. fly secrets set -a vexi-bot-staging \
+#        DISCORD_BOT_TOKEN=<staging bot token> \
+#        GEMINI_API_KEY=<key> GROQ_API_KEY=<key> \
+#        VEXI_CHANNELS=<staging channel id> \
+#        VEXI_PIPELINE=multiagent
+#
+# Deploy (manual only — the GitHub Action never touches this app):
+#   fly deploy -c fly.staging.toml -a vexi-bot-staging --remote-only
+
+app = 'vexi-bot-staging'
+primary_region = 'cdg'
+
+[build]
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 1024
