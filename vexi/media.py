@@ -71,6 +71,10 @@ async def _run_subprocess(args: list[str], timeout: int) -> tuple[int, bytes, by
         except Exception:
             pass
         raise MediaError(f"{args[0]} timed out after {timeout}s")
+    except asyncio.CancelledError:
+        # Review task cancelled — don't leave an orphan encoder running.
+        proc.kill()
+        raise
     return proc.returncode, stdout, stderr
 
 

@@ -508,15 +508,28 @@ def fit_sections(sections: list[tuple[int, str]], budget: int) -> list[str]:
         if drop_candidates:
             kept.pop(drop_candidates[-1])
             continue
-        # Only priority 0/1 left — truncate the longest one.
+        # Only priority 0/1 left — truncate the longest section, repeatedly,
+        # until we fit (or everything is at the floor, then drop from the end).
         idx = max(range(len(kept)), key=lambda i: len(kept[i][1]))
         p, text = kept[idx]
+        if len(text) <= 80:
+            kept.pop()
+            dropped += 1
+            continue
         overshoot = total(kept) - budget
         kept[idx] = (p, text[: max(80, len(text) - overshoot - 2)].rstrip() + "…")
-        break
+
+    # Discord caps a LayoutView at 40 components total; leave room for the
+    # risk container + button row by merging overflow sections together.
+    MAX_SECTIONS = 24
+    if len(kept) > MAX_SECTIONS:
+        head = kept[:MAX_SECTIONS - 1]
+        merged = "\n\n".join(s for _, s in kept[MAX_SECTIONS - 1:])
+        kept = head + [(1, merged)]
+
     out = [s for _, s in kept]
     if dropped:
-        out.append(f"-# +{dropped} more suggestion{'s' if dropped > 1 else ''} — tap **📋 View full analysis**.")
+        out.append(f"-# +{dropped} more note{'s' if dropped > 1 else ''} — tap **📋 View full analysis**.")
     return out
 
 
@@ -571,6 +584,14 @@ def build_review_layout(review: dict, creator_mention: str, coach_line: str | No
 def _chunk_lines(lines: list[str], limit: int = 3800) -> list[str]:
     chunks, cur = [], ""
     for line in lines:
+        # Hard-wrap any single line longer than the limit (e.g. one giant
+        # transcript segment) so no chunk can ever exceed the embed cap.
+        while len(line) > limit:
+            if cur:
+                chunks.append(cur)
+                cur = ""
+            chunks.append(line[:limit - 1] + "…")
+            line = "…" + line[limit - 1:]
         if cur and len(cur) + len(line) + 1 > limit:
             chunks.append(cur)
             cur = ""

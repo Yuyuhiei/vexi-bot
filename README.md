@@ -150,6 +150,7 @@ python -m vexi.selftest video.mp4 --stage all --json-out /tmp/logs   # full revi
 ### Unit tests
 
 ```bash
+pip install pytest        # dev-only, not in requirements.txt
 python -m pytest tests/ -q
 ```
 

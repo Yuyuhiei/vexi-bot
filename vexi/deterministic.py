@@ -27,8 +27,10 @@ HOMOPHONE_BIGRAM = re.compile(r"\bman\s+is\b", re.IGNORECASE)
 # gate is needed when they appear on screen.
 HARD_MISSPELLINGS = {"manis", "mannus", "maus", "mauns", "manuss", "mansu"}
 
+# Note: manus.ai is NOT in this list — open.manus.ai (API) and mail.manus.ai
+# (Mail Manus) are official Manus domains.
 WRONG_DOMAIN_RE = re.compile(
-    r"\b(?:manus\.(?:com|io|ai|co|net)|man[ia]s\.im|mannus\.im|maus\.im|mauns\.im)\b",
+    r"\b(?:manus\.(?:com|io|co|net)|man[ia]s\.im|mannus\.im|maus\.im|mauns\.im)\b",
     re.IGNORECASE,
 )
 
@@ -45,8 +47,16 @@ CONTEXT_CUES = re.compile(
 )
 
 CTA_KEYWORD_RE = re.compile(r"\bcomment\s+[\"'“‘]?([A-Za-z]{2,20})", re.IGNORECASE)
+# Filler words after "comment" that are NOT trigger keywords ("comment below…").
+CTA_STOPWORDS = {
+    "below", "down", "here", "now", "this", "that", "your", "what", "and",
+    "the", "for", "with", "on", "in", "if", "me", "us", "it", "them", "to",
+    "something", "anything", "done", "away",
+}
 
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z']*")
+# Word-boundary brand match — "manuscript" must NOT count as a Manus mention.
+_BRAND_WORD_RE = re.compile(r"\bmanus\b", re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +183,10 @@ def _norm_site(name: str) -> str:
     s = re.sub(r"^https?://", "", s)
     s = re.sub(r"^www\.", "", s)
     s = s.split("/")[0].strip()
+    # Alias every Manus surface to one canonical entry so "Manus" + "manus.im"
+    # + a published manus.space site never count as separate showcased tools.
+    if s in ("manus", "manus.im", "manus.space", "manus app", "manus.ai") or s.endswith(".manus.space"):
+        return "manus.im"
     return s
 
 
@@ -203,7 +217,7 @@ def manus_feature_hits(frames: list[dict]) -> list[dict]:
 
 
 def _text_mentions_brand(text: str) -> bool:
-    return BRAND in (text or "").lower()
+    return bool(_BRAND_WORD_RE.search(text or ""))
 
 
 def first_manus_signal(frames: list[dict], transcript: dict) -> dict | None:
@@ -259,9 +273,10 @@ def evidence_window(frames: list[dict], transcript: dict, t0: float, t1: float) 
 
 def detect_cta_keyword(window: dict) -> str | None:
     for text in list(window.get("speech", [])) + list(window.get("ocr_text", [])):
-        m = CTA_KEYWORD_RE.search(text or "")
-        if m:
-            return m.group(1).upper()
+        for m in CTA_KEYWORD_RE.finditer(text or ""):
+            word = m.group(1)
+            if word.lower() not in CTA_STOPWORDS:
+                return word.upper()
     return None
 
 
@@ -269,6 +284,7 @@ def detect_cta_keyword(window: dict) -> str | None:
 # The full deterministic block
 # ---------------------------------------------------------------------------
 def compute_deterministic(vision_log: dict, transcript: dict, duration_s: float) -> dict:
+    vision_ok = isinstance(vision_log, dict) and vision_log.get("status") == "ok"
     frames = vision_log.get("frames", []) if isinstance(vision_log, dict) else []
 
     logo_spans = _visible_spans(frames, "manus_logo_visible")
@@ -288,10 +304,17 @@ def compute_deterministic(vision_log: dict, transcript: dict, duration_s: float)
     websites = distinct_websites(frames)
     features = manus_feature_hits(frames)
 
-    plug_satisfied = bool(logo_total >= 2.0 or mentioned_spoken or mentioned_ocr or cta_keyword)
+    # Brand-presence bar: logo ≥2s OR any Manus mention OR "comment MANUS"
+    # specifically as the CTA trigger word (a generic keyword like PROMPT
+    # counts as a CTA, but not as brand presence).
+    cta_is_brand = cta_keyword is not None and cta_keyword.lower() == BRAND
+    plug_satisfied = bool(logo_total >= 2.0 or mentioned_spoken or mentioned_ocr or cta_is_brand)
 
-    return {
+    det = {
         "video_duration_s": round(duration_s, 1),
+        # When the vision extractor failed, every vision-derived number below is
+        # VOID, not zero — the adjudicator is told to skip those checks.
+        "vision_available": vision_ok,
         "speech_present": speech_ok and bool(transcript.get("segments")),
         "language": transcript.get("language") if speech_ok else None,
         "homophone_corrections": transcript.get("corrections", []) if speech_ok else [],
@@ -304,6 +327,7 @@ def compute_deterministic(vision_log: dict, transcript: dict, duration_s: float)
             "mentioned_spoken": bool(mentioned_spoken),
             "mentioned_ocr": bool(mentioned_ocr),
             "cta_keyword": cta_keyword,
+            "cta_keyword_is_brand": cta_is_brand,
             "plug_satisfied": plug_satisfied,
         },
         "first_manus_signal": first_manus_signal(frames, transcript),
@@ -319,6 +343,14 @@ def compute_deterministic(vision_log: dict, transcript: dict, duration_s: float)
         "hook_window": hook_window,
         "cta_window": cta_window,
     }
+
+    if not vision_ok:
+        det["plug"] = {"unavailable": True, "cta_keyword": cta_keyword, "cta_keyword_is_brand": cta_is_brand,
+                       "mentioned_spoken": bool(mentioned_spoken)}
+        det["websites"] = {"unavailable": True}
+        det["features"] = {"unavailable": True}
+        det["spelling_findings"] = []
+    return det
 
 
 # ---------------------------------------------------------------------------

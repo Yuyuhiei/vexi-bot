@@ -114,9 +114,16 @@ async def run_vision_extractor(frames: list[FrameSpan]) -> dict:
         chunks: list[tuple[int, list[FrameSpan]]] = []
         for start in range(0, len(frames), VISION_FRAMES_PER_CALL):
             chunks.append((start + 1, frames[start:start + VISION_FRAMES_PER_CALL]))
+        # return_exceptions so a failed chunk doesn't leave siblings running
+        # unobserved; partial coverage is treated as unavailable (the
+        # deterministic layer must never see a silently truncated timeline).
         results = await asyncio.gather(
-            *(_vision_call(chunk, first) for first, chunk in chunks)
+            *(_vision_call(chunk, first) for first, chunk in chunks),
+            return_exceptions=True,
         )
+        failures = [r for r in results if isinstance(r, BaseException)]
+        if failures:
+            raise failures[0]
         merged = [entry for part in results for entry in part]
         return {
             "status": "ok",
@@ -227,11 +234,26 @@ async def _transcribe_gemini(audio_path: str) -> dict:
     }
 
 
+# 16kHz mono 16-bit WAV ≈ 1.9MB/min. 40MB ≈ 20+ minutes of audio — far beyond
+# any UGC clip, and past both Groq's and Gemini's inline comfort zone.
+MAX_AUDIO_BYTES = 40 * 1024 * 1024
+
+
 async def transcribe_audio(audio_path: str | None, session: aiohttp.ClientSession) -> dict:
     """ASR facade with the full degradation chain:
     no audio stream → Groq (if configured) → Gemini → unavailable."""
     if audio_path is None:
         return {"status": "no_audio", "backend": None, "language": None, "segments": []}
+
+    try:
+        import os
+        audio_size = os.path.getsize(audio_path)
+    except OSError:
+        audio_size = 0
+    if audio_size > MAX_AUDIO_BYTES:
+        log.warning(f"audio track too large for ASR ({audio_size / 1e6:.0f}MB) — skipping transcription")
+        return {"status": "unavailable", "backend": None, "language": None, "segments": [],
+                "error": "audio track too long to transcribe"}
 
     backend = VEXI_ASR
     if backend == "auto":

@@ -150,10 +150,11 @@ def test_first_manus_signal_none():
 
 # --- full block ------------------------------------------------------------
 def test_compute_deterministic_plug_any_one_suffices():
-    # No logo, no mention — but CTA keyword present → plug satisfied
+    # No logo, no mention — but the brand word itself as CTA keyword → satisfied
     frames = [frame(50, 58, ocr_text="Comment MANUS for the link")]
-    det = compute_deterministic({"frames": frames}, transcript(status="no_speech"), 58.0)
+    det = compute_deterministic({"status": "ok", "frames": frames}, transcript(status="no_speech"), 58.0)
     assert det["plug"]["cta_keyword"] == "MANUS"
+    assert det["plug"]["cta_keyword_is_brand"] is True
     assert det["plug"]["plug_satisfied"] is True
     assert det["plug"]["logo_ge_2s"] is False
 
@@ -163,7 +164,7 @@ def test_compute_deterministic_six_websites_over_cap():
         frame(i * 5, i * 5 + 5, website_or_app_shown=site)
         for i, site in enumerate(["a.com", "b.com", "c.com", "d.com", "e.com", "manus.im"])
     ]
-    det = compute_deterministic({"frames": frames}, transcript(status="no_speech"), 30.0)
+    det = compute_deterministic({"status": "ok", "frames": frames}, transcript(status="no_speech"), 30.0)
     assert det["websites"]["count"] == 6
     assert det["websites"]["over_cap"] is True
 
@@ -182,3 +183,56 @@ def test_derive_verdict_truth_table():
     ]) == "AUTO-REJECT"
     # Recommends never escalate, even at HIGH risk labels
     assert derive_verdict(True, [{"severity": "recommend", "risk": "HIGH"}]) == "LOOKS GOOD"
+
+
+# --- regression tests from the adversarial review ---------------------------
+def test_manuscript_is_not_a_brand_mention():
+    frames = [frame(0, 5, ocr_text="I love reading an old manuscript at night")]
+    det = compute_deterministic({"status": "ok", "frames": frames}, transcript(status="no_speech"), 10.0)
+    assert det["plug"]["mentioned_ocr"] is False
+    assert det["first_manus_signal"] is None
+
+
+def test_official_manus_ai_subdomains_not_flagged():
+    frames = [frame(0, 5, ocr_text="Check the API at open.manus.ai and email via mail.manus.ai")]
+    assert spelling_findings_from_vision(frames) == []
+
+
+def test_manus_dot_com_still_flagged():
+    frames = [frame(0, 5, ocr_text="go to manus.com and try the AI agent")]
+    findings = spelling_findings_from_vision(frames)
+    assert any(f["reason"] == "wrong_domain" for f in findings)
+
+
+def test_comment_below_is_not_a_cta_keyword():
+    assert detect_cta_keyword({"speech": ["comment below if you want the link"], "ocr_text": []}) is None
+
+
+def test_generic_cta_keyword_counts_as_cta_but_not_brand_presence():
+    frames = [frame(50, 58, ocr_text="Comment PROMPT for the link")]
+    det = compute_deterministic({"status": "ok", "frames": frames}, transcript(status="no_speech"), 58.0)
+    assert det["plug"]["cta_keyword"] == "PROMPT"
+    assert det["plug"]["cta_keyword_is_brand"] is False
+    assert det["plug"]["plug_satisfied"] is False  # generic keyword ≠ brand presence
+
+
+def test_manus_and_manus_im_count_as_one_website():
+    frames = [
+        frame(0, 5, website_or_app_shown="Manus"),
+        frame(5, 10, website_or_app_shown="manus.im"),
+        frame(10, 15, website_or_app_shown="mysite.manus.space"),
+    ]
+    assert distinct_websites(frames) == ["manus.im"]
+
+
+def test_vision_unavailable_voids_derived_facts():
+    det = compute_deterministic(
+        {"status": "unavailable", "frames": []},
+        transcript((0.0, 2.0, "I asked Manus to build it")),
+        30.0,
+    )
+    assert det["vision_available"] is False
+    assert det["plug"].get("unavailable") is True
+    assert det["websites"].get("unavailable") is True
+    assert det["features"].get("unavailable") is True
+    assert det["plug"]["mentioned_spoken"] is True  # speech evidence still counts

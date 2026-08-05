@@ -69,7 +69,6 @@ VEXI_PHASH_THRESHOLD = int(os.environ.get("VEXI_PHASH_THRESHOLD", "6"))
 VEXI_MAX_FRAMES = int(os.environ.get("VEXI_MAX_FRAMES", "45"))
 VEXI_FFMPEG_TIMEOUT_S = int(os.environ.get("VEXI_FFMPEG_TIMEOUT_S", "120"))
 VEXI_MAX_CONCURRENT_PIPELINES = int(os.environ.get("VEXI_MAX_CONCURRENT_PIPELINES", "2"))
-VEXI_DEBUG_ARTIFACTS = os.environ.get("VEXI_DEBUG_ARTIFACTS", "").strip().lower() in ("1", "true", "yes", "on")
 
 # ---------------------------------------------------------------------------
 # Limits

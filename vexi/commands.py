@@ -209,16 +209,18 @@ async def process_single_review(
         if pipeline_used == "multiagent" and "error" not in review:
             coach_line = f"🏷️ {coach.mention} — new review ready!" if coach_ping else None
             view, state_file = build_review_layout(review, submitter.mention, coach_line)
-            try:
-                await progress_msg.delete()
-            except Exception:
-                pass
+            # Send FIRST, delete the progress message only after success — if
+            # the send fails, the except handler can still edit progress_msg.
             await channel.send(
                 view=view,
                 files=[state_file],
                 reference=video_msg,
                 allowed_mentions=discord.AllowedMentions(users=True, roles=True, everyone=False),
             )
+            try:
+                await progress_msg.delete()
+            except Exception:
+                pass
         else:
             content_text, embeds = build_review_message(review, creator=f"{submitter.mention}")
             if coach_ping:
@@ -741,15 +743,16 @@ async def on_message(message: discord.Message):
 
         if pipeline_used == "multiagent":
             view, state_file = build_review_layout(review, message.author.mention, coach_line)
-            try:
-                await thinking_msg.delete()
-            except Exception:
-                pass
+            # Send first, delete the progress message only after success.
             await message.reply(
                 view=view,
                 files=[state_file],
                 allowed_mentions=discord.AllowedMentions(users=True, roles=True, everyone=False),
             )
+            try:
+                await thinking_msg.delete()
+            except Exception:
+                pass
         else:
             content_text, embeds = build_review_message(review, creator=f"{message.author.mention}")
             ping_text = coach_line or content_text or ""

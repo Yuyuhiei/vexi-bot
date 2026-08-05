@@ -135,6 +135,12 @@ async def main() -> int:
         shutil.rmtree(workdir, ignore_errors=True)
         if extra_tmp:
             shutil.rmtree(extra_tmp, ignore_errors=True)
+        elif local_path != args.source and local_path and os.path.exists(local_path):
+            # Downloaded (GDrive/direct) temp file outside a tmp dir.
+            try:
+                os.unlink(local_path)
+            except OSError:
+                pass
         if uploaded is not None:
             await delete_uploaded(uploaded.name)
 

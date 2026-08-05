@@ -98,6 +98,7 @@ async def _gemini_call_and_parse(
     label: str = "gemini",
     model: str | None = None,
     retries: int = 3,
+    short_circuit_hard_errors: bool = False,
 ) -> dict:
     """Call Gemini, parse the JSON reply, and retry once on parse/truncation
     failures. Returns a dict — either the parsed result or {"error": ...} with
@@ -111,9 +112,10 @@ async def _gemini_call_and_parse(
             response = await _gemini_generate(contents, retries=retries, config=config, model=model)
         except Exception as e:
             log.error(f"{label} Gemini call failed on attempt {attempt}: {type(e).__name__}: {e}")
-            if _is_hard_model_error(e):
-                # No point re-calling the same model — surface immediately so
-                # callers with a fallback model can switch.
+            if short_circuit_hard_errors and _is_hard_model_error(e):
+                # Caller has a fallback model — no point re-calling this one on
+                # quota/permission/not-found errors. (Legacy callers keep the
+                # full two-attempt behavior: opt-in only.)
                 return {"error": f"Gemini call failed: {e}", "hard_model_error": True}
             if attempt == 2:
                 return {"error": f"Gemini call failed: {e}"}
@@ -162,6 +164,7 @@ async def upload_file_and_wait(file_path: str, max_wait: int = 120):
         uploaded_file = await asyncio.to_thread(gemini_client.files.get, name=uploaded_file.name)
 
     if uploaded_file.state.name != "ACTIVE":
+        await delete_uploaded(uploaded_file.name)
         raise RuntimeError(f"File processing failed. State: {uploaded_file.state.name}")
     return uploaded_file
 

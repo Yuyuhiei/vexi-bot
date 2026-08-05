@@ -110,7 +110,11 @@ _FINDING_DEFAULTS = {
 def validate_review(result: dict) -> dict:
     """Coerce the adjudicator output so the renderer can never KeyError, and
     let code (not the model) have the final word on the verdict."""
+    # Fresh list objects every time — sharing _REVIEW_DEFAULTS' lists would
+    # leak appended entries across reviews.
     review = dict(_REVIEW_DEFAULTS)
+    for key in ("findings", "green_checks", "reminders", "disagreements"):
+        review[key] = []
     review.update({k: v for k, v in result.items() if v is not None})
 
     findings = []
@@ -130,9 +134,14 @@ def validate_review(result: dict) -> dict:
         findings.append(entry)
     review["findings"] = findings
 
-    for key in ("green_checks", "reminders", "disagreements"):
+    # Coerce list contents so a sloppy model can't crash the renderer.
+    for key in ("green_checks", "reminders"):
         if not isinstance(review.get(key), list):
             review[key] = []
+        review[key] = [str(x) for x in review[key] if isinstance(x, (str, int, float)) and str(x).strip()]
+    if not isinstance(review.get("disagreements"), list):
+        review["disagreements"] = []
+    review["disagreements"] = [d for d in review["disagreements"] if isinstance(d, dict)]
 
     model_verdict = str(review.get("quick_verdict", "")).upper()
     derived = derive_verdict(bool(review.get("manus_relevant", True)), findings)
@@ -168,7 +177,8 @@ async def run_adjudicator(envelope: dict) -> dict:
             continue
         seen.add(model)
         result = await _gemini_call_and_parse(
-            contents, response_json=True, label=f"adjudicator({model})", model=model, retries=retries
+            contents, response_json=True, label=f"adjudicator({model})", model=model,
+            retries=retries, short_circuit_hard_errors=True,
         )
         if "error" not in result:
             review = validate_review(result)
@@ -197,10 +207,11 @@ async def _run(source_url: str, creator_name: str | None, progress) -> dict:
     local_path: str | None = None
     extra_tmp: str | None = None
     upload_holder: dict = {}
+    upload_task: asyncio.Task | None = None
 
-    async def _witness_after_upload(upload_task: asyncio.Task) -> dict:
+    async def _witness_after_upload(up_task: asyncio.Task) -> dict:
         try:
-            uploaded = await upload_task
+            uploaded = await asyncio.shield(up_task)
         except Exception as e:
             return {"status": "unavailable", "error": f"File API upload failed: {e}"}
         upload_holder["file"] = uploaded
@@ -239,12 +250,16 @@ async def _run(source_url: str, creator_name: str | None, progress) -> dict:
                 "status": "unavailable", "segments": [], "error": str(transcript_res)[:300],
             }
 
-            if vision_log.get("status") != "ok" and transcript.get("status") == "unavailable":
+            # Without the vision log AND without any speech evidence there is
+            # nothing trustworthy to adjudicate on (a music-only video with a
+            # dead vision extractor would otherwise read as NOT MANUS CONTENT).
+            if vision_log.get("status") != "ok" and not transcript.get("segments"):
                 witness_task.cancel()
                 with contextlib.suppress(BaseException):
                     await witness_task
                 raise PipelineHardFailure(
-                    f"both extractors failed (vision: {vision_log.get('error')}, asr: {transcript.get('error')})"
+                    f"vision extractor failed with no transcript evidence "
+                    f"(vision: {vision_log.get('error')}, asr status: {transcript.get('status')})"
                 )
 
             transcript = correct_brand_homophones(transcript)
@@ -297,13 +312,18 @@ async def _run(source_url: str, creator_name: str | None, progress) -> dict:
             }
             return review
     finally:
-        shutil.rmtree(workdir, ignore_errors=True)
+        await asyncio.to_thread(shutil.rmtree, workdir, ignore_errors=True)
         if extra_tmp:
-            shutil.rmtree(extra_tmp, ignore_errors=True)
+            await asyncio.to_thread(shutil.rmtree, extra_tmp, ignore_errors=True)
         if local_path and not extra_tmp:
             with contextlib.suppress(Exception):
                 import os
-                os.unlink(local_path)
+                await asyncio.to_thread(os.unlink, local_path)
+        # The upload task may still be in flight (e.g. ffmpeg failed while the
+        # File API upload was running) — settle it so the file is never leaked.
         uploaded = upload_holder.get("file")
+        if uploaded is None and upload_task is not None:
+            with contextlib.suppress(BaseException):
+                uploaded = await asyncio.wait_for(asyncio.shield(upload_task), timeout=60)
         if uploaded is not None:
             await delete_uploaded(uploaded.name)
