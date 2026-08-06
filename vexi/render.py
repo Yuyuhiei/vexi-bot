@@ -412,7 +412,13 @@ class DetailsButton(discord.ui.DynamicItem[discord.ui.Button], template=r"vexi:d
         state = None
         if source is not None:
             try:
-                state = _json.loads(await source.read())
+                try:
+                    data = await source.read()
+                except discord.DiscordException:
+                    # Media items parsed from interaction payloads carry no
+                    # ConnectionState — download via the bot's HTTP client.
+                    data = await interaction.client.http.get_from_cdn(source.url)
+                state = _json.loads(data)
             except Exception:
                 log.warning("details button: could not read/parse state file", exc_info=True)
         if state is None:
