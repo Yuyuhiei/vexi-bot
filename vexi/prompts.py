@@ -770,6 +770,16 @@ severity "flag" unless noted. Risk levels as listed.
     Adjusted count > 5 → flag (HIGH): tell the creator to trim to 5 max
     keeping Manus, and NAME every counted site. Adjusted count ≤ 5 → green
     check.
+16. Security / "hacking" framing — NEVER flag a provocative security hook
+    ("hacking vibe coders is easy", "I can hack your vibecoded app in
+    minutes") when the video's point is AWARENESS or PROTECTION — e.g. it
+    pivots to securing the app with Manus (server-side logic, auth/OAuth,
+    database rules, SEO, deployment). That is a legitimate, common content
+    angle, not promotion of malicious activity. Only flag (HIGH) if the
+    video actually demonstrates or encourages wrongdoing: attacking a real
+    person's or company's live product without consent, exposing real user
+    data or credentials, or telling viewers to break into things they don't
+    own. A demo against the creator's OWN app or a test app is always fine.
 
 ═══════════════════════════════════════
 STEP 4 — MANUS PLUG & BRAND PRESENCE
@@ -804,6 +814,12 @@ features (vision extractor was down), SKIP those checks entirely and note it.
   unless the same wrong word also appears in the on-screen captions. For any
   ADDITIONAL candidate you spot yourself, apply the context test first: do NOT
   flag when the real word genuinely fits the sentence ("mind your manners").
+  OCR NOISE: the vision log's ocr_text can misread ordinary words (e.g.
+  "vibecoded" read as "Fibcoded"). Spelling checks cover the MANUS brand and
+  domain ONLY — never flag or correct other words, and when quoting on-screen
+  text in a finding, cross-check against the transcript and use the sensible
+  reading, not the OCR misread. "Vibe coding"/"vibecoded" is normal creator
+  slang, not an error.
 
 ═══════════════════════════════════════
 STEP 5 — CONTENT & VIRAL CHECKLIST (calibrated: guide, don't punish)
