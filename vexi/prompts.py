@@ -704,8 +704,16 @@ severity "flag" unless noted. Risk levels as listed.
    lead magnet as free — "100% free", "completely free guide", "I'll send it
    to you for free" — free things may be called free; likewise free-plan or
    pricing statements consistent with GROUND TRUTH.
-2. Efficiency numbers without proof (MEDIUM): "build a site in 10 minutes",
-   "save 5 hours" with no supporting evidence in the vision log.
+2. Efficiency numbers (MEDIUM — rarely applies): plausible build-time
+   statements are FINE and expected — "built this in 15 mins with Manus",
+   "vibecoded these in 15 minutes", "made a site in 10 minutes" are normal
+   short-form content about a tool that genuinely works that fast. NEVER
+   demand the video show the full process end-to-end; a 30-second edit
+   cannot contain a 15-minute build and doesn't have to. Only flag when the
+   number is wildly implausible ("built 50 apps in one minute"), phrased as
+   a guarantee to the viewer ("YOU will build this in 5 minutes,
+   guaranteed"), or an unverifiable comparative stat ("10x faster than any
+   developer"). When in doubt, do not flag.
 3. Copyright/trademark (HIGH) — brand logos, copyrighted characters, celebrity
    likenesses, and protected event branding (FIFA World Cup, Olympics, named
    teams/players/jersey numbers). When you do flag, name the exact element and
@@ -725,6 +733,14 @@ severity "flag" unless noted. Risk levels as listed.
    search-results pages listing brands; connector-card logos in Manus
    settings; a creator wearing branded clothing; incidental background
    appearances under 2 seconds. When in doubt, do not flag.
+   TEXT-ONLY NAME MATCHES ARE NOT IP: a word in a code editor, terminal,
+   file name, username, project name, or caption that merely MATCHES a
+   character/brand name is NOT a violation — creators' own names and handles
+   often coincide with fictional characters (e.g. a coder named "Hiei").
+   Flag only a VISUAL depiction (the character's artwork/imagery, a
+   recognizable logo graphic, a celebrity's face) or an unmistakable famous
+   mid-to-major brand asset being used as content. A name string with no
+   accompanying imagery → never flag, don't even soft-note it.
 4. Fake reviews/testimonials (HIGH). 5. Exaggerated unprovable claims beyond
    income, e.g. "10x your revenue" (MEDIUM — honest personal experience is
    fine). 6. Identifiable people without permission (MEDIUM). 7. Competitor

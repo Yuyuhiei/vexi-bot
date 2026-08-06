@@ -431,8 +431,23 @@ class DetailsButton(discord.ui.DynamicItem[discord.ui.Button], template=r"vexi:d
                 ephemeral=True,
             )
             return
-        for embed in build_details_pages(state):
-            await interaction.followup.send(embed=embed, ephemeral=True)
+        # Send as FEW messages as possible: up to 10 embeds per message, but
+        # Discord caps the combined embed text of one message at 6,000 chars.
+        pages = build_details_pages(state)
+        batches: list[list[discord.Embed]] = []
+        cur: list[discord.Embed] = []
+        cur_len = 0
+        for e in pages:
+            e_len = len(e.title or "") + len(e.description or "")
+            if cur and (len(cur) >= 10 or cur_len + e_len > 5800):
+                batches.append(cur)
+                cur, cur_len = [], 0
+            cur.append(e)
+            cur_len += e_len
+        if cur:
+            batches.append(cur)
+        for batch in batches:
+            await interaction.followup.send(embeds=batch, ephemeral=True)
 
 
 def _ts_str(timestamps: list) -> str:
