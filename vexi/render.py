@@ -8,7 +8,7 @@ import time
 
 import discord
 
-from vexi.config import LUMISCRIPT_URL
+from vexi.config import LUMISCRIPT_URL, log
 
 
 def _fit_embed_description(parts: list[str], tail: str | None = None, limit: int = 4096) -> str:
@@ -379,15 +379,34 @@ class DetailsButton(discord.ui.DynamicItem[discord.ui.Button], template=r"vexi:d
 
     async def callback(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
+
+        def _find_state_att(atts):
+            # Spoilered attachments get a SPOILER_ filename prefix — match both.
+            for att in atts:
+                if att.filename == STATE_FILENAME or att.filename.endswith(STATE_FILENAME):
+                    return att
+            return None
+
+        message = interaction.message
+        state_att = _find_state_att(message.attachments) if message else None
+        if state_att is None and message is not None and interaction.channel is not None:
+            # Interaction payloads occasionally omit attachments — refetch.
+            try:
+                message = await interaction.channel.fetch_message(message.id)
+                state_att = _find_state_att(message.attachments)
+            except Exception:
+                log.warning("details button: refetching message failed", exc_info=True)
+
         state = None
-        for att in interaction.message.attachments:
-            if att.filename == STATE_FILENAME:
-                try:
-                    state = _json.loads(await att.read())
-                except Exception:
-                    state = None
-                break
+        if state_att is not None:
+            try:
+                state = _json.loads(await state_att.read())
+            except Exception:
+                log.warning("details button: could not read/parse state attachment", exc_info=True)
         if state is None:
+            atts = [a.filename for a in (message.attachments if message else [])]
+            log.warning(f"details button: no usable state file on message "
+                        f"{getattr(message, 'id', '?')}; attachments={atts}")
             await interaction.followup.send(
                 "😕 I couldn't find the analysis data on this message anymore — "
                 "it may have been edited. Re-run `/vexi` for a fresh review.",
