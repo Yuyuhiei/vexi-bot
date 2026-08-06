@@ -848,17 +848,28 @@ is the FIRST 3 SECONDS; the window includes 2 extra seconds of margin) and
   ("could strengthen it by showing the publish flow or the built-in
   analytics"). A Manus-made website demo that just shows the site working is
   completely fine — say nothing.
-- PRODUCT FORMULA (flag, HIGH — official viral checklist): for product
-  showcases, use the witness's product_formula assessment against the 4-step
-  structure (shocking hook → cut to stunning end result → the how: going to
-  Manus, prompting, /plan → build process via replay/Manus computer). A
-  missing step → flag, calling out specifically a skipped end-result reveal
-  (Step 2) or skipped build process (Step 4). N/A for talking-head
-  testimonials.
+- PRODUCT FORMULA (flag, HIGH — official viral checklist): ONLY for
+  build-a-product showcase videos ("watch me make X with Manus"), use the
+  witness's product_formula assessment against the 4-step structure
+  (shocking hook → cut to stunning end result → the how: going to Manus,
+  prompting, /plan → build process via replay/Manus computer). A missing
+  step → flag, calling out specifically a skipped end-result reveal (Step 2)
+  or skipped build process (Step 4). The "end result" is whatever outcome
+  the video promises — for a security/feature video, demonstrating the
+  capabilities themselves (OAuth, database, analytics, etc.) IS the result;
+  do not demand a flashy website reveal from a video that isn't building a
+  website. N/A entirely for talking-head testimonials, security/awareness
+  angles, feature walkthroughs, listicles, and tutorials — flag only when
+  the video clearly follows the showcase format and skips a step.
 - PACING/SUBTITLES (flag, HIGH — official viral checklist): dead space >1s,
   subtitles missing or mismatched to the spoken language, or visibly
   info-overloaded text-heavy screens (per witness + vision log) → flag with
   timestamps. For a no_speech music-only video, subtitle checks are N/A.
+  Subtitle accuracy can ONLY be judged from the on-screen OCR text itself.
+  The transcript is OUR machine transcription of the audio, NOT the video's
+  subtitles — where transcript and OCR disagree on a word (transcript
+  "Maneus" vs on-screen "Manus"), that is OUR speech recognition mishearing,
+  never a creator error. NEVER flag transcript-vs-OCR mismatches.
 - SAFE ZONES / LIGHTING / AUDIO (severity "recommend"): from the witness.
 - "AI REPLACES HUMANS" framing (flag, HIGH — zero tolerance): any framing of
   AI firing people / replacing jobs in transcript or OCR → flag; suggest

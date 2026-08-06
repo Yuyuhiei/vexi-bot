@@ -19,13 +19,14 @@ BRAND_DOMAIN = "manus.im"
 HOMOPHONES = {
     "manners", "menace", "manis", "manas", "mannus", "manuscript",
     "manor", "menus", "minus", "magnus", "maus", "mauns", "manos", "mantis",
+    "maneus", "manius",
 }
 # Two-word mishearing: "man is"
 HOMOPHONE_BIGRAM = re.compile(r"\bman\s+is\b", re.IGNORECASE)
 
 # Non-word misspellings — these are never legitimate English, so no context
 # gate is needed when they appear on screen.
-HARD_MISSPELLINGS = {"manis", "mannus", "maus", "mauns", "manuss", "mansu"}
+HARD_MISSPELLINGS = {"manis", "mannus", "maus", "mauns", "manuss", "mansu", "maneus", "manius"}
 
 # Note: manus.ai is NOT in this list — open.manus.ai (API) and mail.manus.ai
 # (Mail Manus) are official Manus domains.
