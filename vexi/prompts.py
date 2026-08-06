@@ -491,8 +491,10 @@ For EVERY frame, in order, output one JSON object:
     anywhere in the frame (even small)?,
   "manus_ui_visible": true/false — is the Manus app interface visible per
     GROUND TRUTH (sidebar, task thread, Manus's Computer panel, manus.im URL)?,
-  "website_or_app_shown": "domain or product name the CREATOR is deliberately
-    presenting in this frame (the focus of the shot), else null",
+  "website_or_app_shown": "domain or product name ONLY when the CREATOR is
+    actively SHOWCASING that site/tool in this frame — it is the focus of the
+    shot AND being presented by name (named in a caption/title card/voiceover
+    context) with its page actually on screen, else null",
   "inside_manus_panel": true/false — is the thing shown displayed INSIDE the
     Manus agent's computer/browser panel (the agent using it, not the creator
     showcasing it)?,
@@ -505,10 +507,16 @@ For EVERY frame, in order, output one JSON object:
 
 Rules:
 - ocr_text is verbatim and complete; include tab/URL-bar text.
-- website_or_app_shown: only what the creator deliberately presents. A browser
-  tab bar with unrelated tabs, a search-results page listing sites, or a site
-  the Manus agent is browsing in its panel → null (but still set
+- website_or_app_shown: only what the creator deliberately SHOWCASES (named +
+  demoed, listicle-style "site you should know"). NEVER report: browser tab
+  bars or other open tabs, bookmark/dock/home-screen icons, app grids,
+  search-results pages listing sites, logos glimpsed in the background, or a
+  site the Manus agent is browsing in its panel → all null (but still set
   inside_manus_panel appropriately).
+- A website the creator BUILT with Manus in this video (the demo output —
+  usually a *.manus.space URL or a preview opened from Manus) is Manus's own
+  work, not a third-party tool: report it as "manus.im", never by the site's
+  project name.
 - manus_feature: pick the single best-matching feature_key, or null. Use only
   keys from GROUND TRUTH.
 - NO opinions, NO severity ratings, NO advice — extraction only.
@@ -688,8 +696,14 @@ background but clearly not the focus.
 STEP 3 — LEGAL COMPLIANCE (evidence-based)
 ═══════════════════════════════════════
 severity "flag" unless noted. Risk levels as listed.
-1. Absolute claims (HIGH): "100%", "zero errors", "fully replaces humans",
-   "best AI" in transcript/OCR without proof.
+1. Absolute claims (HIGH): guarantees of OUTCOMES no tool can promise —
+   "100% success", "zero errors", "guaranteed results", "guaranteed to get you
+   an A+", "will land you clients", "fully replaces humans", "best AI" stated
+   as fact. The test: is an impossible-to-guarantee RESULT being promised?
+   NOT absolute claims (never flag): describing a genuinely free giveaway or
+   lead magnet as free — "100% free", "completely free guide", "I'll send it
+   to you for free" — free things may be called free; likewise free-plan or
+   pricing statements consistent with GROUND TRUTH.
 2. Efficiency numbers without proof (MEDIUM): "build a site in 10 minutes",
    "save 5 hours" with no supporting evidence in the vision log.
 3. Copyright/trademark (HIGH) — brand logos, copyrighted characters, celebrity
@@ -728,10 +742,18 @@ severity "flag" unless noted. Risk levels as listed.
     ad-disclosure hashtag (#ManusAd, #ManusPartner, #Ad, #Sponsored) in the
     caption; #Manus alone is not enough. Never suggest hashtags on the video.
 15. Website/tool showcase cap — "deterministic.websites" has the precomputed
-    count of distinct sites the creator showcased (sites inside the Manus
-    panel already excluded). count > 5 → flag (HIGH): tell the creator to trim
-    to 5 max keeping Manus, and NAME every counted site from the list.
-    count ≤ 5 → green check. Do not recount yourself; trust the number.
+    count of distinct sites the creator SHOWCASED (sites inside the Manus
+    panel already excluded). "Showcased" means deliberately presented by name
+    with a demo of the site, listicle-style ("5 websites every vibecoder
+    should know") — NOT sites merely visible in a browser tab, dock/bookmark
+    icon, background, or a website the creator built with Manus (that is
+    Manus's own output, counts as Manus). Before flagging, sanity-check each
+    named site against the vision log: if an entry is clearly incidental
+    (only ever seen in tab bars/icons/background) or is a Manus-built demo
+    site, EXCLUDE it from the count and note the exclusion in green_checks.
+    Adjusted count > 5 → flag (HIGH): tell the creator to trim to 5 max
+    keeping Manus, and NAME every counted site. Adjusted count ≤ 5 → green
+    check.
 
 ═══════════════════════════════════════
 STEP 4 — MANUS PLUG & BRAND PRESENCE

@@ -45,13 +45,16 @@ VEXI_PIPELINE = os.environ.get("VEXI_PIPELINE", "legacy").strip().lower()
 # ---------------------------------------------------------------------------
 # Model names. All env-overridable so the Gemini 2.5 → 3.x migration
 # (2.5 retires Oct 16, 2026) is a `fly secrets set`, not a redeploy.
+# Defaults are gemini-2.5-flash across the board: flash-lite and 2.5-pro
+# return 404 "no longer available to new users" on newer API keys. If your
+# key has access, override (e.g. GEMINI_MODEL_ADJUDICATOR=gemini-2.5-pro).
 # ---------------------------------------------------------------------------
 GEMINI_MODEL_LEGACY = os.environ.get("GEMINI_MODEL_LEGACY", "gemini-2.5-flash")
-GEMINI_MODEL_VISION = os.environ.get("GEMINI_MODEL_VISION", "gemini-2.5-flash-lite")
+GEMINI_MODEL_VISION = os.environ.get("GEMINI_MODEL_VISION", "gemini-2.5-flash")
 GEMINI_MODEL_WITNESS = os.environ.get("GEMINI_MODEL_WITNESS", "gemini-2.5-flash")
-GEMINI_MODEL_ADJUDICATOR = os.environ.get("GEMINI_MODEL_ADJUDICATOR", "gemini-2.5-pro")
+GEMINI_MODEL_ADJUDICATOR = os.environ.get("GEMINI_MODEL_ADJUDICATOR", "gemini-2.5-flash")
 GEMINI_MODEL_ADJUDICATOR_FALLBACK = os.environ.get("GEMINI_MODEL_ADJUDICATOR_FALLBACK", "gemini-2.5-flash")
-GEMINI_MODEL_TRANSLATE = os.environ.get("GEMINI_MODEL_TRANSLATE", "gemini-2.5-flash-lite")
+GEMINI_MODEL_TRANSLATE = os.environ.get("GEMINI_MODEL_TRANSLATE", "gemini-2.5-flash")
 
 # ---------------------------------------------------------------------------
 # ASR backend: 'auto' picks Groq when GROQ_API_KEY is set, else Gemini.

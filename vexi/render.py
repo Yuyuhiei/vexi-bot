@@ -520,7 +520,8 @@ def fit_sections(sections: list[tuple[int, str]], budget: int) -> list[str]:
         kept[idx] = (p, text[: max(80, len(text) - overshoot - 2)].rstrip() + "…")
 
     # Discord caps a LayoutView at 40 components total; leave room for the
-    # risk container + button row by merging overflow sections together.
+    # risk container + button row + state-file chip by merging overflow
+    # sections together.
     MAX_SECTIONS = 24
     if len(kept) > MAX_SECTIONS:
         head = kept[:MAX_SECTIONS - 1]
@@ -558,6 +559,11 @@ class ReviewLayout(discord.ui.LayoutView):
         row = discord.ui.ActionRow()
         row.add_item(DetailsButton())
         self.add_item(row)
+
+        # Discord REMOVES attachments that no component references on a
+        # Components V2 message, so the state file must be referenced here or
+        # the details button finds nothing. Spoilered = collapsed grey chip.
+        self.add_item(discord.ui.File(f"attachment://{STATE_FILENAME}", spoiler=True))
 
 
 def build_state_file(review: dict, creator_mention: str) -> discord.File:

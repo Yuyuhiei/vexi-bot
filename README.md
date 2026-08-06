@@ -32,7 +32,7 @@ Instead of one model watching the whole video and writing the verdict in one sho
 ```
 video ──► ffmpeg: 1fps frames (pHash-deduped) + 16kHz audio
    │
-   ├─► Vision extractor  (Gemini Flash-Lite) — verbatim on-screen text, Manus
+   ├─► Vision extractor  (Gemini Flash) — verbatim on-screen text, Manus
    │        logo/UI visibility, websites & features shown, per second
    ├─► Transcriber       (Groq Whisper, word timestamps; Gemini fallback)
    ├─► Witness           (Gemini Flash, full video) — pacing, energy, hook,
@@ -40,7 +40,7 @@ video ──► ffmpeg: 1fps frames (pHash-deduped) + 16kHz audio
    ├─► Deterministic layer (pure Python — cannot hallucinate) — logo screen
    │        time, homophone corrections ("Manners"→"Manus"), website count,
    │        feature count, hook/CTA windows, spelling checks
-   └─► Adjudicator "head reviewer" (Gemini 2.5 Pro, auto-fallback to Flash) —
+   └─► Adjudicator "head reviewer" (Gemini Flash; env-upgradable to Pro) —
             reads all evidence, trusts measured facts over model impressions,
             writes the final structured review
 ```
@@ -70,7 +70,7 @@ git checkout v2-stable && flyctl deploy
 
 Notes:
 - Any `fly secrets set` restarts the machine and drops in-flight queued reviews — flip during quiet hours.
-- The v3 default head model `gemini-2.5-pro` needs a **paid-tier** Gemini key. On free tier, also set `GEMINI_MODEL_ADJUDICATOR=gemini-2.5-flash`.
+- All models default to `gemini-2.5-flash` (flash-lite and 2.5-pro 404 for newer API keys). If your key has Pro access, set `GEMINI_MODEL_ADJUDICATOR=gemini-2.5-pro` for a stronger head reviewer.
 - Test on staging first: see `fly.staging.toml` (self-documenting — separate Discord bot + separate Fly app, deployed manually, never touched by CI).
 
 ---
@@ -95,10 +95,10 @@ In v3 the verdict is **derived in code from the structured findings** (flag/reco
 |---|---|
 | Runtime | Python 3.11+ (`python:3.11-slim` + ffmpeg) |
 | Discord | discord.py ≥2.6 (Components V2, persistent dynamic buttons) |
-| Vision/OCR | Gemini 2.5 Flash-Lite (batched deduped frames) |
+| Vision/OCR | Gemini 2.5 Flash (batched deduped frames) |
 | Transcription | Groq `whisper-large-v3-turbo` (word timestamps) → Gemini fallback |
 | Witness / Legacy | Gemini 2.5 Flash (native video understanding) |
-| Head reviewer | Gemini 2.5 Pro → Flash fallback |
+| Head reviewer | Gemini 2.5 Flash (env-upgradable to Pro if your key has access) |
 | Frame dedupe | Pillow + ImageHash (perceptual hash) |
 | HTTP | aiohttp (async) |
 | Hosting | Fly.io (Paris region, 24/7, 1 GB shared VM) |
@@ -116,7 +116,7 @@ See `.env.example` for the full annotated list. The important ones:
 | Variable | Required | Description |
 |---|---|---|
 | `DISCORD_BOT_TOKEN` | Yes | Discord bot token from the Developer Portal |
-| `GEMINI_API_KEY` | Yes | Google Gemini API key (paid tier for the Pro head model) |
+| `GEMINI_API_KEY` | Yes | Google Gemini API key |
 | `VEXI_CHANNELS` | Yes | Comma-separated channel IDs for auto-detect |
 | `VEXI_PIPELINE` | No | `legacy` (default) or `multiagent` — the kill-switch |
 | `GROQ_API_KEY` | No | Free key → best transcription (word timestamps) |
