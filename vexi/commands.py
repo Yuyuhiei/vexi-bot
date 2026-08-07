@@ -16,10 +16,13 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from datetime import datetime, timezone
+
 from vexi.config import (
     APIFY_API_TOKEN,
     COACH_ROLE_ID,
     VEXI_CHANNEL_IDS,
+    VEXI_DAILY_REVIEW_LIMIT,
     VEXI_PIPELINE,
     log,
 )
@@ -92,6 +95,34 @@ async def on_ready():
         _commands_synced = True
     except Exception as e:
         log.error(f"Failed to sync commands: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Daily spend brake
+# ---------------------------------------------------------------------------
+_daily = {"day": None, "count": 0}
+
+DAILY_LIMIT_MESSAGE = (
+    "😴 Vexi has hit today's review limit and is taking a breather to keep "
+    "costs sane. Your video was NOT reviewed — please resubmit tomorrow, or "
+    "tag a coach if it's urgent."
+)
+
+
+def _register_reviews(n: int) -> int:
+    """Reserve up to n review slots against today's cap. Returns how many were
+    granted (0 = limit reached). Counter is in-memory and UTC-day scoped."""
+    if VEXI_DAILY_REVIEW_LIMIT <= 0:
+        return n
+    today = datetime.now(timezone.utc).date()
+    if _daily["day"] != today:
+        _daily["day"] = today
+        _daily["count"] = 0
+    granted = max(0, min(n, VEXI_DAILY_REVIEW_LIMIT - _daily["count"]))
+    _daily["count"] += granted
+    if granted < n:
+        log.warning(f"daily review limit reached ({VEXI_DAILY_REVIEW_LIMIT}) — refusing {n - granted} submission(s)")
+    return granted
 
 
 # ---------------------------------------------------------------------------
@@ -324,6 +355,13 @@ async def vexi_command(
         )
         return
 
+    granted = _register_reviews(len(sources))
+    if granted == 0:
+        await interaction.followup.send(DAILY_LIMIT_MESSAGE)
+        return
+    dropped = len(sources) - granted
+    sources = sources[:granted]
+
     total = len(sources)
     coach_ping = f"🏷️ {coach.mention} — " if coach else ""
     if total == 1:
@@ -335,6 +373,9 @@ async def vexi_command(
             f"{coach_ping}📥 **Vexi received {total} videos from {interaction.user.mention}.**\n"
             f"Processing one at a time — I'll reply with each review below as it's ready."
         )
+    if dropped:
+        header += (f"\n😴 Heads up: today's review limit only had room for {granted} of your "
+                   f"{granted + dropped} videos — resubmit the rest tomorrow.")
     master_msg = await interaction.followup.send(content=header)
 
     for i, src in enumerate(sources, start=1):
@@ -701,6 +742,14 @@ async def on_message(message: discord.Message):
 
     video_url = extract_video_source(message)
     if not video_url:
+        await bot.process_commands(message)
+        return
+
+    if _register_reviews(1) == 0:
+        try:
+            await message.reply(DAILY_LIMIT_MESSAGE)
+        except Exception:
+            pass
         await bot.process_commands(message)
         return
 

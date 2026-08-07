@@ -78,6 +78,11 @@ VEXI_MAX_CONCURRENT_PIPELINES = int(os.environ.get("VEXI_MAX_CONCURRENT_PIPELINE
 # ---------------------------------------------------------------------------
 MAX_VIDEO_BYTES = 100 * 1024 * 1024  # 100MB cap, enforced by every downloader
 
+# Spend brake: max reviews per UTC day across all users (0 = unlimited).
+# When exceeded, submissions get a friendly "try again tomorrow" instead of
+# burning Gemini credit. In-memory counter — resets on bot restart.
+VEXI_DAILY_REVIEW_LIMIT = int(os.environ.get("VEXI_DAILY_REVIEW_LIMIT", "300"))
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
