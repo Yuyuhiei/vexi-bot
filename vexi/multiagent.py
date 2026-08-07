@@ -179,6 +179,9 @@ async def run_adjudicator(envelope: dict) -> dict:
         result = await _gemini_call_and_parse(
             contents, response_json=True, label=f"adjudicator({model})", model=model,
             retries=retries, short_circuit_hard_errors=True,
+            # Rule application benefits from reasoning, but bounded: 4k thinking
+            # still leaves 12k of the 16k output ceiling for the review JSON.
+            thinking_budget=4096,
         )
         if "error" not in result:
             review = validate_review(result)

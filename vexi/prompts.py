@@ -860,7 +860,13 @@ is the FIRST 3 SECONDS; the window includes 2 extra seconds of margin) and
   feature to add. count ≥ 2 → green check listing the detected features with
   their timestamps. Skip entirely for pure talking-head testimonials.
 - FUNCTIONAL DEMO (flag, HIGH): a functional product shown but never actually
-  clicked/interacted with (vision log shows only static views) → flag.
+  interacted with. This can ONLY be judged from the witness report — the
+  vision log samples one still frame per second, so clicking, scrolling,
+  typing, cursor movement and zoom/pan edits are INVISIBLE to it; NEVER
+  conclude "static screenshots" from the frames. Flag only when the WITNESS
+  (who watches full-motion video) explicitly reports the demo is static
+  images with no interaction. A screen recording with any motion, zooms, or
+  UI activity counts as a live demo.
 - PUBLISH/SHARE/ANALYTICS/SEO (severity "recommend" — NEVER a flag): only
   when the video explicitly promotes web-app building as a workflow and none
   of publishing/analytics/SEO appear in the vision log → one soft suggestion

@@ -85,7 +85,8 @@ GEMINI_JSON_MAX_OUTPUT_TOKENS = 16384
 
 
 def _build_generate_config(
-    response_json: bool, temperature: float = 0.2, media_resolution=None
+    response_json: bool, temperature: float = 0.2, media_resolution=None,
+    thinking_budget: int | None = None,
 ) -> "genai_types.GenerateContentConfig":
     kwargs: dict = {"temperature": temperature}
     if response_json:
@@ -93,6 +94,12 @@ def _build_generate_config(
         kwargs["max_output_tokens"] = GEMINI_JSON_MAX_OUTPUT_TOKENS
     if media_resolution is not None:
         kwargs["media_resolution"] = media_resolution
+    # Gemini 2.5 thinks by default, and thinking tokens bill as OUTPUT and
+    # count against max_output_tokens — an uncapped extractor call can burn
+    # ~16k tokens reasoning and truncate its own JSON (MAX_TOKENS at ~500
+    # visible chars). Extractors pass 0; the adjudicator passes a small budget.
+    if thinking_budget is not None:
+        kwargs["thinking_config"] = genai_types.ThinkingConfig(thinking_budget=thinking_budget)
     return genai_types.GenerateContentConfig(**kwargs)
 
 
@@ -104,6 +111,7 @@ async def _gemini_call_and_parse(
     retries: int = 3,
     short_circuit_hard_errors: bool = False,
     media_resolution=None,
+    thinking_budget: int | None = None,
 ) -> dict:
     """Call Gemini, parse the JSON reply, and retry once on parse/truncation
     failures. Returns a dict — either the parsed result or {"error": ...} with
@@ -113,7 +121,8 @@ async def _gemini_call_and_parse(
     for attempt in (1, 2):
         temp = 0.2 if attempt == 1 else 0.35  # nudge temp up on retry to avoid deterministic re-truncation
         config = _build_generate_config(
-            response_json=response_json, temperature=temp, media_resolution=media_resolution
+            response_json=response_json, temperature=temp, media_resolution=media_resolution,
+            thinking_budget=thinking_budget,
         )
         try:
             response = await _gemini_generate(contents, retries=retries, config=config, model=model)

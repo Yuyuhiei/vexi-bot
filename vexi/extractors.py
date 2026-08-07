@@ -81,7 +81,8 @@ async def _vision_call(chunk: list[FrameSpan], first_index: int) -> list[dict]:
         contents.append(genai_types.Part.from_bytes(data=data, mime_type="image/jpeg"))
 
     result = await _gemini_call_and_parse(
-        contents, response_json=True, label=f"vision[{first_index}..]", model=GEMINI_MODEL_VISION
+        contents, response_json=True, label=f"vision[{first_index}..]", model=GEMINI_MODEL_VISION,
+        thinking_budget=0,  # mechanical extraction — reasoning tokens only cost money and truncate JSON
     )
     if "error" in result:
         raise RuntimeError(f"vision extractor failed: {result['error'][:200]}")
@@ -219,7 +220,8 @@ async def _transcribe_gemini(audio_path: str) -> dict:
     audio_bytes = await asyncio.to_thread(lambda: open(audio_path, "rb").read())
     audio_part = genai_types.Part.from_bytes(data=audio_bytes, mime_type="audio/wav")
     result = await _gemini_call_and_parse(
-        [audio_part, GEMINI_ASR_PROMPT], response_json=True, label="asr(gemini)", model=GEMINI_MODEL_WITNESS
+        [audio_part, GEMINI_ASR_PROMPT], response_json=True, label="asr(gemini)", model=GEMINI_MODEL_WITNESS,
+        thinking_budget=0,
     )
     if "error" in result:
         raise RuntimeError(f"gemini ASR failed: {result['error'][:200]}")
@@ -303,6 +305,7 @@ async def translate_segments(transcript: dict) -> dict:
             response_json=True,
             label="translate",
             model=GEMINI_MODEL_TRANSLATE,
+            thinking_budget=0,
         )
         if "error" not in result and isinstance(result.get("segments"), list):
             transcript["translation_en"] = result["segments"]
@@ -324,6 +327,7 @@ async def run_witness(uploaded_file) -> dict:
             # energy, hooks and structure — all fine-detail reading (OCR, logos,
             # spelling) comes from the full-quality vision frames instead.
             media_resolution=genai_types.MediaResolution.MEDIA_RESOLUTION_LOW,
+            thinking_budget=0,  # impressions, not derivations
         )
         if "error" in result:
             return {"status": "unavailable", "error": result["error"][:300]}
