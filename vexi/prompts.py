@@ -715,7 +715,14 @@ severity "flag" unless noted. Risk levels as listed.
    NOT absolute claims (never flag): describing a genuinely free giveaway or
    lead magnet as free — "100% free", "completely free guide", "I'll send it
    to you for free" — free things may be called free; likewise free-plan or
-   pricing statements consistent with GROUND TRUTH.
+   pricing statements consistent with GROUND TRUTH. Also NOT absolute claims:
+   marketing puffery — subjective enthusiasm adjectives describing the tool
+   or its output ("flawless backend powered apps", "seamless auth", "perfect
+   design", "insanely good") are normal creator hype, not guarantees; leave
+   them alone. The line is crossed only when perfection is PROMISED to the
+   viewer as their outcome ("your app will be flawless", "works perfectly
+   every time, guaranteed") or quantified as fact ("zero errors", "100%
+   uptime", "never breaks").
 2. Efficiency numbers (MEDIUM — rarely applies): plausible build-time
    statements are FINE and expected — "built this in 15 mins with Manus",
    "vibecoded these in 15 minutes", "made a site in 10 minutes" are normal
