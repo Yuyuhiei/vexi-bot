@@ -84,11 +84,15 @@ async def _gemini_generate(contents: list, retries: int = 3, config=None, model:
 GEMINI_JSON_MAX_OUTPUT_TOKENS = 16384
 
 
-def _build_generate_config(response_json: bool, temperature: float = 0.2) -> "genai_types.GenerateContentConfig":
+def _build_generate_config(
+    response_json: bool, temperature: float = 0.2, media_resolution=None
+) -> "genai_types.GenerateContentConfig":
     kwargs: dict = {"temperature": temperature}
     if response_json:
         kwargs["response_mime_type"] = "application/json"
         kwargs["max_output_tokens"] = GEMINI_JSON_MAX_OUTPUT_TOKENS
+    if media_resolution is not None:
+        kwargs["media_resolution"] = media_resolution
     return genai_types.GenerateContentConfig(**kwargs)
 
 
@@ -99,6 +103,7 @@ async def _gemini_call_and_parse(
     model: str | None = None,
     retries: int = 3,
     short_circuit_hard_errors: bool = False,
+    media_resolution=None,
 ) -> dict:
     """Call Gemini, parse the JSON reply, and retry once on parse/truncation
     failures. Returns a dict — either the parsed result or {"error": ...} with
@@ -107,7 +112,9 @@ async def _gemini_call_and_parse(
     last_fr = "unknown"
     for attempt in (1, 2):
         temp = 0.2 if attempt == 1 else 0.35  # nudge temp up on retry to avoid deterministic re-truncation
-        config = _build_generate_config(response_json=response_json, temperature=temp)
+        config = _build_generate_config(
+            response_json=response_json, temperature=temp, media_resolution=media_resolution
+        )
         try:
             response = await _gemini_generate(contents, retries=retries, config=config, model=model)
         except Exception as e:

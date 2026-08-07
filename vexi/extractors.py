@@ -319,7 +319,11 @@ async def run_witness(uploaded_file) -> dict:
     already-ACTIVE File API object (the orchestrator uploads once)."""
     try:
         result = await _gemini_call_and_parse(
-            [uploaded_file, WITNESS_PROMPT], response_json=True, label="witness", model=GEMINI_MODEL_WITNESS
+            [uploaded_file, WITNESS_PROMPT], response_json=True, label="witness", model=GEMINI_MODEL_WITNESS,
+            # Low resolution ≈ 1/4 the video tokens. The witness judges pacing,
+            # energy, hooks and structure — all fine-detail reading (OCR, logos,
+            # spelling) comes from the full-quality vision frames instead.
+            media_resolution=genai_types.MediaResolution.MEDIA_RESOLUTION_LOW,
         )
         if "error" in result:
             return {"status": "unavailable", "error": result["error"][:300]}

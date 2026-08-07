@@ -500,8 +500,11 @@ For EVERY frame, in order, output one JSON object:
     showcasing it)?,
   "manus_feature": "<one feature_key from GROUND TRUTH that this frame
     demonstrates>" or null,
-  "scene_description": "one objective sentence: who/what is on screen and what
-    is happening",
+  "scene_description": "TERSE objective phrase, max 10 words: who/what is on
+    screen and what is happening (e.g. 'creator talking to camera',
+    'Manus building website, code streaming'). Only exceed 10 words when
+    something legally notable needs naming (a brand logo, a recognizable
+    character, on-screen money amounts).",
   "people_present": true/false — a real human face or body visible
 }
 
