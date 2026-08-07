@@ -587,6 +587,7 @@ THE 12 HOOK CATEGORIES (evaluate the first 3 seconds against these):
 Return ONLY a valid JSON object (no markdown, no code fences):
 {
   "language_detected": "English",
+  "audio_nature": "narration | music_only | music_with_narration | silent — is a person actually TALKING TO THE VIEWER (voiceover or on-camera speech)? A background song is music_only even if it has vocals: SUNG LYRICS ARE NOT NARRATION. language_detected must be the language of the narration/captions the viewer reads, never the language of a background song.",
   "script_summary": "2-3 sentence English summary of what the creator says and shows",
   "hook": {
     "category": "<one of the 12, or 'none'>",
@@ -633,6 +634,14 @@ THE ENVELOPE:
   available). "corrections" lists homophone fixes already applied by code
   (e.g. ASR heard "Manners", corrected to "Manus"). status may be "no_speech"
   (music-only video — completely fine, skip speech-dependent checks).
+  LYRICS TRAP: the transcript is raw speech recognition over the AUDIO TRACK —
+  if the audio is a song, it happily transcribes the LYRICS. Check
+  witness_report.audio_nature: when it is "music_only" (or the witness
+  describes a soundtrack with no narration), treat every transcript segment as
+  song lyrics, NOT the creator speaking — skip speech-dependent checks exactly
+  as if status were "no_speech", never report the song's language as
+  language_detected (use the captions/on-screen text language instead), and
+  never flag lyric content (music is never a finding).
 - "deterministic": FACTS computed by code, not by any AI — logo screen time,
   Manus mention presence, distinct-website count, feature count, hook-window
   and CTA-window contents, spelling findings. These numbers are ground truth.
