@@ -161,15 +161,32 @@ async def process_single_review(
 
     # Post the video header (with re-attached file if we can)
     video_msg: discord.Message
-    if attachment is not None:
+    try:
+        if attachment is not None:
+            try:
+                video_file = await attachment.to_file()
+                video_msg = await channel.send(content=header, file=video_file, reference=master_msg)
+            except discord.Forbidden:
+                raise
+            except Exception as e:
+                log.warning(f"Could not re-attach video for video {index}: {e}")
+                video_msg = await channel.send(content=f"{header}\n(couldn't re-attach the file)", reference=master_msg)
+        else:
+            video_msg = await channel.send(content=f"{header}\n🎬 Video: {display_url or url}", reference=master_msg)
+    except discord.Forbidden:
+        # Slash commands reach the bot even in channels it can't post in
+        # (webhook followups bypass channel permissions) — tell the submitter
+        # via the master followup instead of dying silently.
+        log.warning(f"No send access in channel {getattr(channel, 'id', '?')} — skipping review {index}/{total}")
         try:
-            video_file = await attachment.to_file()
-            video_msg = await channel.send(content=header, file=video_file, reference=master_msg)
-        except Exception as e:
-            log.warning(f"Could not re-attach video for video {index}: {e}")
-            video_msg = await channel.send(content=f"{header}\n(couldn't re-attach the file)", reference=master_msg)
-    else:
-        video_msg = await channel.send(content=f"{header}\n🎬 Video: {display_url or url}", reference=master_msg)
+            await master_msg.edit(content=(
+                "❌ I don't have permission to post in this channel, so I can't run "
+                "reviews here. Please use a channel where I have access (or ask an "
+                "admin to grant it), then re-run `/vexi`."
+            ))
+        except Exception:
+            pass
+        return
 
     progress_header = f"⏳ **Vexi is analyzing {label.lower()}...**"
     progress_msg = await video_msg.reply(content=f"{progress_header}\n▁▁▁▁▁▁▁▁▁▁ Sending to AI...")
