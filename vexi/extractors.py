@@ -32,7 +32,10 @@ from vexi.prompts import (
     WITNESS_PROMPT,
 )
 
-VISION_FRAMES_PER_CALL = 30
+# Smaller chunks: a single verbose call can't blow the 16k output ceiling
+# (25 dense frames once produced 35k chars → MAX_TOKENS → full paid retry),
+# retries re-do less work, and chunks run in parallel so latency drops too.
+VISION_FRAMES_PER_CALL = 15
 GROQ_TRANSCRIPTION_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 NO_SPEECH_PROB_THRESHOLD = 0.8
 

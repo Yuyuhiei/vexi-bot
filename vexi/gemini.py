@@ -82,6 +82,24 @@ async def _gemini_generate(contents: list, retries: int = 3, config=None, model:
 _PRICE_IN_PER_M = 0.30
 _PRICE_OUT_PER_M = 2.50
 
+# Per-review usage tally. A contextvar so concurrent reviews don't mix:
+# the orchestrator calls start_usage_tally() at the top of its task, every
+# Gemini call in that task tree adds to the same dict, and the orchestrator
+# logs one total line at the end.
+import contextvars
+
+_usage_tally: contextvars.ContextVar[dict | None] = contextvars.ContextVar("vexi_usage_tally", default=None)
+
+
+def start_usage_tally() -> dict:
+    tally = {"calls": 0, "in": 0, "out": 0, "think": 0}
+    _usage_tally.set(tally)
+    return tally
+
+
+def tally_cost(tally: dict) -> float:
+    return (tally["in"] * _PRICE_IN_PER_M + (tally["out"] + tally["think"]) * _PRICE_OUT_PER_M) / 1e6
+
 
 def _log_usage(label: str, response) -> None:
     try:
@@ -93,6 +111,12 @@ def _log_usage(label: str, response) -> None:
         t = getattr(usage, "thoughts_token_count", None) or 0
         cost = (p * _PRICE_IN_PER_M + (o + t) * _PRICE_OUT_PER_M) / 1e6
         log.info(f"{label} usage: in={p} out={o} think={t} ≈ ${cost:.4f}")
+        tally = _usage_tally.get()
+        if tally is not None:
+            tally["calls"] += 1
+            tally["in"] += p
+            tally["out"] += o
+            tally["think"] += t
     except Exception:
         pass
 

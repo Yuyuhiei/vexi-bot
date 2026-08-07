@@ -36,7 +36,13 @@ from vexi.extractors import (
     transcribe_audio,
     translate_segments,
 )
-from vexi.gemini import _gemini_call_and_parse, delete_uploaded, upload_file_and_wait
+from vexi.gemini import (
+    _gemini_call_and_parse,
+    delete_uploaded,
+    start_usage_tally,
+    tally_cost,
+    upload_file_and_wait,
+)
 from vexi.media import MediaError, extract_media
 from vexi.prompts import ADJUDICATOR_PROMPT
 
@@ -206,6 +212,7 @@ async def run_multiagent_review(
 
 
 async def _run(source_url: str, creator_name: str | None, progress) -> dict:
+    usage = start_usage_tally()
     workdir = tempfile.mkdtemp(prefix="vexi_pipe_")
     local_path: str | None = None
     extra_tmp: str | None = None
@@ -315,6 +322,9 @@ async def _run(source_url: str, creator_name: str | None, progress) -> dict:
             }
             return review
     finally:
+        if usage["calls"]:
+            log.info(f"review total: {usage['calls']} Gemini calls, in={usage['in']} "
+                     f"out={usage['out']} think={usage['think']} ≈ ${tally_cost(usage):.4f}")
         await asyncio.to_thread(shutil.rmtree, workdir, ignore_errors=True)
         if extra_tmp:
             await asyncio.to_thread(shutil.rmtree, extra_tmp, ignore_errors=True)
