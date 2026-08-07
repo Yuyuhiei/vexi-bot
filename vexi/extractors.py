@@ -86,6 +86,10 @@ async def _vision_call(chunk: list[FrameSpan], first_index: int) -> list[dict]:
     result = await _gemini_call_and_parse(
         contents, response_json=True, label=f"vision[{first_index}..]", model=GEMINI_MODEL_VISION,
         thinking_budget=0,  # mechanical extraction — reasoning tokens only cost money and truncate JSON
+        # Healthy output is ~170 tokens/frame; a tight ceiling means the model's
+        # occasional repetition loops get cut (and retried) after ~5k tokens
+        # instead of rambling to 16k on our dime.
+        max_output_tokens=600 + 320 * len(chunk),
     )
     if "error" in result:
         raise RuntimeError(f"vision extractor failed: {result['error'][:200]}")
