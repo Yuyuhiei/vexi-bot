@@ -77,6 +77,26 @@ async def _gemini_generate(contents: list, retries: int = 3, config=None, model:
     raise last_exc
 
 
+# Rough gemini-2.5-flash pricing for the per-call usage log lines ($/1M tokens).
+# Estimates only — thinking tokens bill at the output rate.
+_PRICE_IN_PER_M = 0.30
+_PRICE_OUT_PER_M = 2.50
+
+
+def _log_usage(label: str, response) -> None:
+    try:
+        usage = getattr(response, "usage_metadata", None)
+        if usage is None:
+            return
+        p = usage.prompt_token_count or 0
+        o = usage.candidates_token_count or 0
+        t = getattr(usage, "thoughts_token_count", None) or 0
+        cost = (p * _PRICE_IN_PER_M + (o + t) * _PRICE_OUT_PER_M) / 1e6
+        log.info(f"{label} usage: in={p} out={o} think={t} ≈ ${cost:.4f}")
+    except Exception:
+        pass
+
+
 # Explicit output-token ceiling for JSON review calls. Truncated responses
 # (finish_reason=STOP mid-string) are the main cause of "AI returned invalid
 # JSON" errors — the model quietly capped itself. 16k gives every paragraph
@@ -137,6 +157,7 @@ async def _gemini_call_and_parse(
                 return {"error": f"Gemini call failed: {e}"}
             continue
 
+        _log_usage(label, response)
         raw = (response.text or "").strip()
         if raw.startswith("```"):
             raw = re.sub(r"^```(?:json)?\s*", "", raw)
