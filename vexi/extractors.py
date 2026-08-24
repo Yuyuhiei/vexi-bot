@@ -131,19 +131,26 @@ async def run_vision_extractor(frames: list[FrameSpan]) -> dict:
             *(_vision_call(chunk, first) for first, chunk in chunks),
             return_exceptions=True,
         )
-        # Transient failures (429s, one bad JSON parse) are common enough that
-        # one full-chunk retry rescues most reviews from losing vision entirely.
+        # Failed chunks retry SPLIT IN HALF: half-sized outputs can't hit the
+        # token ceiling and rarely loop, so the rescue nearly always succeeds —
+        # and re-sending a few frames costs ~$0.002 vs re-running a full chunk.
         retry_idx = [i for i, r in enumerate(results) if isinstance(r, BaseException)]
         if retry_idx:
             log.warning(f"vision: {len(retry_idx)}/{len(chunks)} chunk(s) failed "
-                        f"({results[retry_idx[0]]}) — retrying once")
+                        f"({results[retry_idx[0]]}) — retrying in halves")
             await asyncio.sleep(3)
-            retried = await asyncio.gather(
-                *(_vision_call(chunks[i][1], chunks[i][0]) for i in retry_idx),
-                return_exceptions=True,
-            )
-            for i, r in zip(retry_idx, retried):
-                results[i] = r
+            for i in retry_idx:
+                first, chunk = chunks[i]
+                mid = (len(chunk) + 1) // 2
+                halves = [(first, chunk[:mid])]
+                if chunk[mid:]:
+                    halves.append((first + mid, chunk[mid:]))
+                retried = await asyncio.gather(
+                    *(_vision_call(c, f) for f, c in halves),
+                    return_exceptions=True,
+                )
+                bad = next((r for r in retried if isinstance(r, BaseException)), None)
+                results[i] = bad if bad is not None else [e for part in retried for e in part]
         failures = [r for r in results if isinstance(r, BaseException)]
         if failures:
             raise failures[0]
