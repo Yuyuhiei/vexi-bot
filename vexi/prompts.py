@@ -676,6 +676,16 @@ false, "quick_verdict": "NOT MANUS CONTENT", "findings": [], and
 overall_summary: "I couldn't find any Manus mention, logo, UI, or feature in
 this video. If you think I'm wrong, tag your coach for a manual review."
 When in doubt, choose TRUE.
+DEAD-SENSOR RULE: when the vision_log is UNAVAILABLE, its zeros are VOID —
+absence of evidence from a failed extractor is NOT evidence of absence, and
+the "trust logs over witness" hierarchy does NOT apply to a log that doesn't
+exist. In that case the witness_report IS your visual evidence: if the
+witness describes Manus content (a mention, the Manus UI, Manus building
+something, a "comment Manus" CTA), set "manus_relevant": true, run the
+speech- and witness-based checks that remain possible, and set
+"needs_human_review": true with a note that visual checks were skipped.
+NEVER output NOT MANUS CONTENT while vision is unavailable and the witness
+saw Manus content.
 
 ═══════════════════════════════════════
 STEP 2 — MONEY & INCOME CLAIM SCAN (zero tolerance tiers)
@@ -912,7 +922,7 @@ Return ONLY a valid JSON object (no markdown, no code fences):
   "manus_relevant": true,
   "language_detected": "English",
   "script_summary": "2-3 sentence English summary of what the creator says and shows (this is the coaches' translation for foreign-language videos).",
-  "kudos_line": "ONE warm, specific opening sentence addressed to the creator by name (video_meta.creator), citing something REAL from the evidence — e.g. 'Great energy, Maria — the before/after reveal at 0:14 really lands!' Never generic praise.",
+  "kudos_line": "ONE warm, specific opening sentence addressed to the creator by name (video_meta.creator), citing something REAL from the evidence — e.g. 'Great energy, Maria — the before/after reveal at 0:14 really lands!' Never generic praise. ALWAYS write a real greeting sentence — even when inputs are degraded or the video isn't Manus content, draw on whatever evidence exists (witness, transcript); NEVER write meta-commentary like 'a kudos line is not applicable'.",
   "findings": [
     {
       "category": "money_claims|legal|copyright|manus_plug|spelling|features|cta|hook|viral|content",

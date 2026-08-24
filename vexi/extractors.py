@@ -86,10 +86,12 @@ async def _vision_call(chunk: list[FrameSpan], first_index: int) -> list[dict]:
     result = await _gemini_call_and_parse(
         contents, response_json=True, label=f"vision[{first_index}..]", model=GEMINI_MODEL_VISION,
         thinking_budget=0,  # mechanical extraction — reasoning tokens only cost money and truncate JSON
-        # Healthy output is ~170 tokens/frame; a tight ceiling means the model's
-        # occasional repetition loops get cut (and retried) after ~5k tokens
-        # instead of rambling to 16k on our dime.
-        max_output_tokens=600 + 320 * len(chunk),
+        # Ceiling bounds the model's occasional repetition loops without
+        # starving honest output: typical frames run ~170 tokens but a
+        # code-editor/text-dense frame can legitimately need 500+ for its
+        # verbatim OCR — 600/frame headroom, loops still cut ~40% sooner
+        # than the blanket 16k.
+        max_output_tokens=1000 + 600 * len(chunk),
     )
     if "error" in result:
         raise RuntimeError(f"vision extractor failed: {result['error'][:200]}")
@@ -226,8 +228,10 @@ async def _transcribe_gemini(audio_path: str) -> dict:
     """Fallback: Gemini audio-only transcription (~1s segment granularity)."""
     audio_bytes = await asyncio.to_thread(lambda: open(audio_path, "rb").read())
     audio_part = genai_types.Part.from_bytes(data=audio_bytes, mime_type="audio/wav")
+    # Static prompt FIRST: Gemini's implicit caching discounts input tokens on
+    # shared request prefixes, so the prompt must precede the per-video media.
     result = await _gemini_call_and_parse(
-        [audio_part, GEMINI_ASR_PROMPT], response_json=True, label="asr(gemini)", model=GEMINI_MODEL_WITNESS,
+        [GEMINI_ASR_PROMPT, audio_part], response_json=True, label="asr(gemini)", model=GEMINI_MODEL_WITNESS,
         thinking_budget=0,
     )
     if "error" in result:
@@ -328,8 +332,9 @@ async def run_witness(uploaded_file) -> dict:
     """Full-video Gemini call with the slimmed holistic prompt. Takes an
     already-ACTIVE File API object (the orchestrator uploads once)."""
     try:
+        # Static prompt FIRST — enables Gemini implicit prefix caching.
         result = await _gemini_call_and_parse(
-            [uploaded_file, WITNESS_PROMPT], response_json=True, label="witness", model=GEMINI_MODEL_WITNESS,
+            [WITNESS_PROMPT, uploaded_file], response_json=True, label="witness", model=GEMINI_MODEL_WITNESS,
             # Low resolution ≈ 1/4 the video tokens. The witness judges pacing,
             # energy, hooks and structure — all fine-detail reading (OCR, logos,
             # spelling) comes from the full-quality vision frames instead.

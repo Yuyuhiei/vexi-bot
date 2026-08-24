@@ -12,9 +12,12 @@ Failure philosophy:
 
 import asyncio
 import contextlib
+import copy
+import hashlib
 import json
 import shutil
 import tempfile
+import time
 
 import aiohttp
 
@@ -25,6 +28,7 @@ from vexi.config import (
     log,
 )
 from vexi.deterministic import (
+    _BRAND_WORD_RE,
     compute_deterministic,
     correct_brand_homophones,
     derive_verdict,
@@ -211,6 +215,42 @@ async def run_multiagent_review(
         return await _run(source_url, creator_name, progress)
 
 
+# Exact-duplicate review cache: same video bytes + same creator → same review,
+# reused for free instead of re-running the whole pipeline. Keyed on content
+# hash so URL differences don't matter; creator included so kudos lines stay
+# personal. In-memory only — restarts (every deploy) naturally invalidate it,
+# so prompt changes never serve stale reviews.
+_review_cache: dict[tuple[str, str], tuple[float, dict]] = {}
+_REVIEW_CACHE_TTL_S = 24 * 3600
+_REVIEW_CACHE_MAX = 40
+
+
+def _file_sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _review_cache_get(key: tuple[str, str]) -> dict | None:
+    entry = _review_cache.get(key)
+    if entry is None:
+        return None
+    ts, review = entry
+    if time.time() - ts > _REVIEW_CACHE_TTL_S:
+        _review_cache.pop(key, None)
+        return None
+    return copy.deepcopy(review)
+
+
+def _review_cache_put(key: tuple[str, str], review: dict) -> None:
+    if len(_review_cache) >= _REVIEW_CACHE_MAX:
+        oldest = min(_review_cache, key=lambda k: _review_cache[k][0])
+        _review_cache.pop(oldest, None)
+    _review_cache[key] = (time.time(), copy.deepcopy(review))
+
+
 async def _run(source_url: str, creator_name: str | None, progress) -> dict:
     usage = start_usage_tally()
     workdir = tempfile.mkdtemp(prefix="vexi_pipe_")
@@ -233,6 +273,12 @@ async def _run(source_url: str, creator_name: str | None, progress) -> dict:
             local_path, extra_tmp, err = await acquire_video(source_url, session)
             if not local_path:
                 raise PipelineHardFailure(f"download failed: {err}")
+
+            cache_key = (await asyncio.to_thread(_file_sha256, local_path), creator_name or "")
+            cached = _review_cache_get(cache_key)
+            if cached is not None:
+                log.info(f"review cache hit ({cache_key[0][:12]}…) — reusing previous review, $0")
+                return cached
 
             # File-API upload (for the witness) runs concurrently with ffmpeg.
             upload_task = asyncio.create_task(upload_file_and_wait(local_path))
@@ -303,6 +349,34 @@ async def _run(source_url: str, creator_name: str | None, progress) -> dict:
             if "error" in review:
                 raise PipelineHardFailure(f"adjudicator failed on both models: {review['error'][:200]}")
 
+            # Dead-sensor backstop (code, not prompt): a NOT MANUS verdict is
+            # untrustworthy when the vision extractor was down and the witness
+            # — who actually watched the video — described Manus content.
+            # Absence of evidence from a failed extractor is not evidence.
+            if (
+                not review.get("manus_relevant", True)
+                and vision_log.get("status") != "ok"
+                and witness.get("status") == "ok"
+                and _BRAND_WORD_RE.search(json.dumps(witness, ensure_ascii=False))
+            ):
+                log.warning("relevance override: vision was down but the witness describes "
+                            "Manus content — NOT MANUS CONTENT verdict rejected")
+                review["manus_relevant"] = True
+                review["quick_verdict"] = "NEEDS REVIEW"
+                review["needs_human_review"] = True
+                review["kudos_line"] = ""
+                review["overall_summary"] = (
+                    "The frame-by-frame extractor failed this run, but the full watch-through "
+                    "clearly saw Manus content — visual checks were skipped, so a coach should "
+                    "give this one a proper look."
+                )
+                review.setdefault("disagreements", []).append({
+                    "topic": "Manus relevance",
+                    "witness_said": "video contains Manus content",
+                    "logs_say": "vision log unavailable (extractor failure — zeros are void)",
+                    "resolution": "code override: witness trusted, flagged for human review",
+                })
+
             review["degraded_inputs"] = degraded
             if degraded:
                 review["needs_human_review"] = True
@@ -320,6 +394,7 @@ async def _run(source_url: str, creator_name: str | None, progress) -> dict:
                 ],
                 "pipeline": "multiagent",
             }
+            _review_cache_put(cache_key, review)
             return review
     finally:
         if usage["calls"]:
