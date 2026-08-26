@@ -601,7 +601,7 @@ Return ONLY a valid JSON object (no markdown, no code fences):
   },
   "pacing_dead_air": "one sentence: pacing quality, any dead space >1s with rough timestamps",
   "energy_storytelling": "one sentence",
-  "visual_quality_safe_zones": "one sentence: lighting, audio clarity, critical text/face inside bottom 350px or top 250px?",
+  "visual_quality_safe_zones": "one sentence: lighting, audio clarity, and safe zones — report a safe-zone issue ONLY if critical text/faces sit at the very EDGE of the frame where platform UI (caption bar, buttons) would actually cover them, or are visibly cut off. Lower-third text placement is normal; do not report text as 'low' when it is readable and clear of the extreme edges.",
   "subtitles": {"present": true/false, "language": "<language or null>", "matches_spoken_language": true/false},
   "product_formula": "If the video showcases a product: which of the 4 steps are present — Step 1 shocking hook, Step 2 cut to stunning end result, Step 3 the how (going to Manus, prompting, /plan), Step 4 build process (replay / Manus computer footage)? Name any missing step. If no product showcase, write 'N/A - not a product showcase'.",
   "overall_impression": "1-2 sentences: does this feel like a native, scroll-stopping TikTok/Reel?",
@@ -860,9 +860,14 @@ is the FIRST 3 SECONDS; the window includes 2 extra seconds of margin) and
   hook window, or no real-person presence / flat emotion per the witness →
   recommend a specific improvement, naming one of the 12 hook categories and
   a concrete example line. A strong hook → green check naming its category.
-- CTA (severity "recommend" — NEVER a flag): if cta_window shows no spoken or
-  on-screen CTA with a comment keyword → recommend adding one, e.g. end with
-  "comment MANUS and I'll send you the exact prompt". Present → green check.
+- CTA (severity "recommend" — NEVER a flag): a CTA in EITHER modality fully
+  satisfies the check — spoken OR on-screen text, never demand both. If the
+  cta_window shows neither → recommend adding one, e.g. end with "comment
+  MANUS and I'll send you the exact prompt". Present in either form → green
+  check. When only ONE modality is present, you MAY add a light pro-tip
+  framed as a content hack, not a requirement (e.g. "your spoken CTA lands —
+  a small text overlay of it would also catch viewers who watch muted"), and
+  only when you have no more important suggestions to make.
   Include the ManyChat/DM-automation reminder (see REMINDERS) either way.
 - FEATURES (flag, HIGH): if the video demos Manus or a Manus-built product,
   "deterministic.features" must show ≥2 distinct features across the WHOLE
@@ -897,15 +902,28 @@ is the FIRST 3 SECONDS; the window includes 2 extra seconds of margin) and
   angles, feature walkthroughs, listicles, and tutorials — flag only when
   the video clearly follows the showcase format and skips a step.
 - PACING/SUBTITLES (flag, HIGH — official viral checklist): dead space >1s,
-  subtitles missing or mismatched to the spoken language, or visibly
-  info-overloaded text-heavy screens (per witness + vision log) → flag with
-  timestamps. For a no_speech music-only video, subtitle checks are N/A.
+  subtitles missing or in the wrong LANGUAGE, or visibly info-overloaded
+  text-heavy screens (per witness + vision log) → flag with timestamps. For
+  a no_speech music-only video, subtitle checks are N/A.
+  WHAT COUNTS AS A SUBTITLE: only captions that transcribe the speech as it
+  happens. Text OVERLAYS — hook text, title cards, labels, punchlines,
+  stylistic text — are independent creative elements and are SUPPOSED to
+  differ from the voice script (a hook overlay saying something different
+  from the opening line is good technique, not an error). NEVER compare
+  overlay text against the spoken audio or demand they match; "mismatched"
+  means only: captions transcribing speech in a different language than
+  spoken, or garbled/out-of-sync caption text.
   Subtitle accuracy can ONLY be judged from the on-screen OCR text itself.
   The transcript is OUR machine transcription of the audio, NOT the video's
   subtitles — where transcript and OCR disagree on a word (transcript
   "Maneus" vs on-screen "Manus"), that is OUR speech recognition mishearing,
   never a creator error. NEVER flag transcript-vs-OCR mismatches.
 - SAFE ZONES / LIGHTING / AUDIO (severity "recommend"): from the witness.
+  Safe-zone calibration: lower-third text placement is NORMAL and good
+  practice — "kinda low" is not a problem. Only suggest moving text/faces
+  when the witness reports them at the very EDGE of the frame where platform
+  UI (captions bar, buttons, progress bar) would actually cover them, or
+  visibly cut off. When placement is merely low-but-readable, say nothing.
 - "AI REPLACES HUMANS" framing (flag, HIGH — zero tolerance): any framing of
   AI firing people / replacing jobs in transcript or OCR → flag; suggest
   empowerment framing instead.
