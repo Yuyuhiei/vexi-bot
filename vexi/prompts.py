@@ -849,6 +849,10 @@ features (vision extractor was down), SKIP those checks entirely and note it.
   text in a finding, cross-check against the transcript and use the sensible
   reading, not the OCR misread. "Vibe coding"/"vibecoded" is normal creator
   slang, not an error.
+  CAPITALIZATION IS NEVER A FINDING: the official Manus wordmark is itself
+  lowercase "manus" (see GROUND TRUTH), so "manus", "Manus", and "MANUS" are
+  all correct in any text. A spelling finding requires WRONG LETTERS or a
+  WRONG DOMAIN ("Mannus", "Manis", "manus.com") — never letter case.
 
 ═══════════════════════════════════════
 STEP 5 — CONTENT & VIRAL CHECKLIST (calibrated: guide, don't punish)
@@ -890,21 +894,36 @@ is the FIRST 3 SECONDS; the window includes 2 extra seconds of margin) and
   completely fine — say nothing.
 - PRODUCT FORMULA (flag, HIGH — official viral checklist): ONLY for
   build-a-product showcase videos ("watch me make X with Manus"), use the
-  witness's product_formula assessment against the 4-step structure
-  (shocking hook → cut to stunning end result → the how: going to Manus,
-  prompting, /plan → build process via replay/Manus computer). A missing
-  step → flag, calling out specifically a skipped end-result reveal (Step 2)
-  or skipped build process (Step 4). The "end result" is whatever outcome
-  the video promises — for a security/feature video, demonstrating the
-  capabilities themselves (OAuth, database, analytics, etc.) IS the result;
-  do not demand a flashy website reveal from a video that isn't building a
-  website. N/A entirely for talking-head testimonials, security/awareness
-  angles, feature walkthroughs, listicles, and tutorials — flag only when
-  the video clearly follows the showcase format and skips a step.
+  witness's product_formula assessment against the 4 ELEMENTS: shocking
+  hook; stunning end result; the how (going to Manus, prompting, /plan);
+  build process (replay/Manus computer). ORDER DOES NOT MATTER: the classic
+  structure cuts to the end result right after the hook, but saving the
+  reveal for the finale is an equally valid structure — check only that
+  each element appears SOMEWHERE in the video. Flag only an element that
+  never appears at all (e.g. the finished result is never shown anywhere,
+  or the build process is entirely absent). NEVER tell a creator to move
+  the end result earlier or reorder their edit — placement is a creative
+  choice. The "end result" is whatever outcome the video promises — for a
+  security/feature video, demonstrating the capabilities themselves (OAuth,
+  database, analytics, etc.) IS the result; do not demand a flashy website
+  reveal from a video that isn't building a website. N/A entirely for
+  talking-head testimonials, security/awareness angles, feature
+  walkthroughs, listicles, and tutorials — flag only when the video clearly
+  follows the showcase format and an element is missing outright.
 - PACING/SUBTITLES (flag, HIGH — official viral checklist): dead space >1s,
   subtitles missing or in the wrong LANGUAGE, or visibly info-overloaded
-  text-heavy screens (per witness + vision log) → flag with timestamps. For
-  a no_speech music-only video, subtitle checks are N/A.
+  text-heavy screens (per witness + vision log) → flag with timestamps.
+  WHEN "MISSING SUBTITLES" MAY BE FLAGGED — ALL THREE must hold:
+  (1) the video has actual NARRATION (spoken to the viewer). No narration —
+      no_speech, music_only per audio_nature, or lyrics-only transcript —
+      means subtitles are N/A: never ask a non-talking video for subtitles;
+  (2) the vision log's ocr_text is essentially EMPTY across the video. The
+      OCR is authoritative for on-screen text: if frames throughout show
+      captions/text overlays, the video HAS on-screen text — never flag
+      "no subtitles" against it (the witness watches at low resolution and
+      can miss small caption text; trust the OCR);
+  (3) the witness also reports subtitles absent.
+  If any of the three fails, say nothing about subtitles.
   WHAT COUNTS AS A SUBTITLE: only captions that transcribe the speech as it
   happens. Text OVERLAYS — hook text, title cards, labels, punchlines,
   stylistic text — are independent creative elements and are SUPPOSED to
